@@ -13,7 +13,24 @@ Chrome side panel 안에서 Markdown 초안을 작성할 수 있으며, 별도 p
 - Chrome이 종료되기 전까지 작성 중 draft 유지
 - 장기 저장, 문서 관리, 동기화, autosave UI 없음
 
+## 바로 설치하기
+
+빌드 없이 사용하려면 GitHub Release에서 배포용 zip 파일을 내려받습니다.
+
+1. [Releases](https://github.com/Gudals0320/SideMarkDown/releases/latest) 페이지를 엽니다.
+2. `SideMarkDown-0.1.0.zip`을 다운로드합니다.
+3. zip 파일을 압축 해제합니다.
+4. Chrome에서 `chrome://extensions`를 엽니다.
+5. 우측 상단의 `Developer mode`를 켭니다.
+6. `Load unpacked`를 클릭합니다.
+7. 압축 해제한 폴더 중 `manifest.json`이 들어 있는 폴더를 선택합니다.
+8. 확장 아이콘을 클릭하면 SideMarkDown side panel이 열립니다.
+
+이 방식은 Chrome Web Store 설치가 아니라 Chrome의 개발자 모드에서 unpacked extension으로 적용하는 방식입니다.
+
 ## 설치 및 빌드
+
+source에서 직접 빌드하려면 다음 명령을 실행합니다.
 
 ```bash
 npm install
@@ -24,7 +41,7 @@ npm run build
 
 ## Chrome에 적용하는 방법
 
-개발 또는 수동 테스트용 적용 방법:
+직접 빌드한 경우 적용 방법:
 
 1. Chrome에서 `chrome://extensions`를 엽니다.
 2. 우측 상단의 `Developer mode`를 켭니다.
