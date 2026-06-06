@@ -1,0 +1,110 @@
+:root {
+  color-scheme: light dark;
+  font-family:
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+  background: Canvas;
+  color: CanvasText;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+  width: 100vw;
+  height: 100vh;
+  margin: 0;
+  overflow: hidden;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 44px;
+  padding: 8px 10px;
+  border-bottom: 1px solid color-mix(in srgb, CanvasText 14%, transparent);
+  background: color-mix(in srgb, Canvas 94%, CanvasText 6%);
+}
+
+.toolbar-actions {
+  display: flex;
+  gap: 6px;
+}
+
+button {
+  border: 1px solid color-mix(in srgb, CanvasText 18%, transparent);
+  border-radius: 8px;
+  padding: 5px 8px;
+  background: Canvas;
+  color: CanvasText;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+  background: color-mix(in srgb, CanvasText 8%, Canvas);
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+#editor {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+#status {
+  position: fixed;
+  right: 10px;
+  bottom: 8px;
+  min-height: 18px;
+  margin: 0;
+  font-size: 12px;
+  color: color-mix(in srgb, CanvasText 72%, transparent);
+}
+
+.milkdown {
+  min-height: 100%;
+}
+
+.ProseMirror {
+  min-height: calc(100vh - 45px);
+  padding: 16px;
+  outline: none;
+  font-size: 14px;
+  line-height: 1.65;
+  word-break: break-word;
+}
+
+.ProseMirror h1,
+.ProseMirror h2,
+.ProseMirror h3 {
+  line-height: 1.25;
+}
+
+.ProseMirror pre {
+  overflow-x: auto;
+  padding: 12px;
+  border-radius: 10px;
+}
+
+.ProseMirror code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.ProseMirror :not(pre) > code {
+  color: #fff;
+}
