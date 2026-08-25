@@ -1,5 +1,10 @@
 :root {
   color-scheme: light dark;
+  --foreground: #2e3440;
+  --background: #e5e9f0;
+  --focus: #5e81ac;
+  --inline-code-foreground: #2e3440;
+  --inline-code-background: #e5e9f0;
   font-family:
     ui-sans-serif,
     system-ui,
@@ -7,8 +12,17 @@
     BlinkMacSystemFont,
     "Segoe UI",
     sans-serif;
-  background: Canvas;
-  color: CanvasText;
+  background: var(--background);
+  color: var(--foreground);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --foreground: #eceff4;
+    --background: #3b4252;
+    --inline-code-foreground: #eceff4;
+    --inline-code-background: #3b4252;
+  }
 }
 
 * {
@@ -37,12 +51,14 @@ body {
 
 .toolbar-actions {
   display: flex;
+  align-items: center;
   gap: 6px;
 }
 
 button {
   border: 1px solid color-mix(in srgb, CanvasText 18%, transparent);
   border-radius: 8px;
+  min-height: 32px;
   padding: 5px 8px;
   background: Canvas;
   color: CanvasText;
@@ -67,12 +83,10 @@ button:disabled {
 }
 
 #status {
-  position: fixed;
-  right: 10px;
-  bottom: 8px;
-  min-height: 18px;
+  min-width: 48px;
   margin: 0;
   font-size: 12px;
+  text-align: right;
   color: color-mix(in srgb, CanvasText 72%, transparent);
 }
 
@@ -87,6 +101,11 @@ button:disabled {
   font-size: 14px;
   line-height: 1.65;
   word-break: break-word;
+}
+
+.ProseMirror:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
 }
 
 .ProseMirror h1,
@@ -106,5 +125,6 @@ button:disabled {
 }
 
 .ProseMirror :not(pre) > code {
-  color: #fff;
+  color: var(--inline-code-foreground);
+  background: var(--inline-code-background);
 }

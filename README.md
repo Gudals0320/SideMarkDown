@@ -119,6 +119,12 @@ SideMarkDown/
 ## 검증 명령
 
 ```bash
-npm run build
-node --test tests\extension-contract.test.mjs
+npm ci
+npx playwright install chromium
+npm test
+npm run test:e2e
+npm run test:all
+npm audit --audit-level=moderate
 ```
+
+`npm test`는 빌드와 12개의 extension contract를 실행합니다. `npm run test:e2e`는 격리된 Chromium 프로필을 시작하고 `dist/`를 unpacked extension으로 로드해 실제 확장 동작을 검증합니다. 이 검증은 사용자의 일반 Chrome 프로필을 수정하지 않습니다. `npm run test:all`은 빌드, contract, 실제 extension E2E를 모두 실행하는 전체 로컬 게이트입니다. 마지막으로 `npm audit --audit-level=moderate`로 moderate 이상 보안 취약점을 확인합니다.

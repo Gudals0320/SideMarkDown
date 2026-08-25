@@ -42,14 +42,32 @@ const importTypeScriptModule = async (...segments) => {
   }
 }
 
-test('package lock uses public npm registry tarball URLs', () => {
+test('dependency sources and CI actions are immutable and public', () => {
   const lockfile = readText('package-lock.json')
+  const workflow = readText('.github', 'workflows', 'ci.yml')
 
   assert.equal(
     lockfile.includes('packages.applied-caas-gateway1.internal.api.openai.org'),
     false,
     'package-lock.json must not pin dependencies to the internal OpenAI npm gateway',
   )
+  const actionUses = [...workflow.matchAll(/^\s*- uses: ([^@\s]+)@([^\s]+) # (\S+)$/gm)]
+    .map(([, action, revision, version]) => ({ action, revision, version }))
+
+  assert.deepEqual(actionUses, [
+    {
+      action: 'actions/checkout',
+      revision: 'fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09',
+      version: 'v5',
+    },
+    {
+      action: 'actions/setup-node',
+      revision: 'a0853c24544627f65ddf259abe73b1d18a591444',
+      version: 'v5',
+    },
+  ])
+  assert.equal(actionUses.every(({ revision }) => /^[0-9a-f]{40}$/.test(revision)), true)
+  assert.equal(/uses:\s*actions\/(?:checkout|setup-node)@v5\b/.test(workflow), false)
 })
 
 test('source manifest and background configure side panel action click only', () => {
@@ -87,17 +105,17 @@ test('initial editor content is blank', () => {
   assert.equal(sidepanel.includes('Write your prompt in **Markdown** here.'), false)
 })
 
-test('inline code keeps theme background and uses white text', () => {
+test('inline code declares accessible light and dark custom-property tokens', () => {
   const css = readText('src', 'styles.css')
 
   assert.match(css, /\.ProseMirror :not\(pre\) > code/)
-  assert.match(css, /color:\s*#fff/)
-  assert.equal(css.includes('#fff1d6'), false)
-  assert.equal(css.includes('#7a2e00'), false)
-  assert.equal(css.includes('#3a2612'), false)
-  assert.equal(css.includes('#ffe0b2'), false)
-  assert.equal(/\.ProseMirror :not\(pre\) > code\s*\{[^}]*background:/s.test(css), false)
-  assert.equal(css.includes('color: var(--color-nord10)'), false)
+  assert.equal(css.includes('color: #fff'), false)
+  assert.match(css, /--inline-code-foreground:\s*#2e3440/)
+  assert.match(css, /--inline-code-background:\s*#e5e9f0/)
+  assert.match(css, /--inline-code-foreground:\s*#eceff4/)
+  assert.match(css, /--inline-code-background:\s*#3b4252/)
+  assert.equal(/#(?:7a2e00|fff1d6|ffe0b2|3a2612)\b/i.test(css), false)
+  assert.match(css, /@media\s*\(prefers-color-scheme:\s*dark\)/)
 })
 
 test('copy and clear actions use Milkdown markdown source APIs', () => {
