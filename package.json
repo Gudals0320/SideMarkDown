@@ -6,6 +6,10 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
+    "test:contracts": "node --test tests/extension-contract.test.mjs",
+    "test:e2e": "node --test tests/extension-e2e.test.mjs",
+    "test": "npm run build && npm run test:contracts",
+    "test:all": "npm run build && npm run test:contracts && npm run test:e2e",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -15,6 +19,7 @@
   "devDependencies": {
     "@types/chrome": "^0.1.42",
     "@types/node": "^25.9.1",
+    "playwright": "1.62.1",
     "typescript": "^6.0.3",
     "vite": "^8.0.16"
   }

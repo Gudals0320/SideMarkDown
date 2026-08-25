@@ -87,17 +87,17 @@ test('initial editor content is blank', () => {
   assert.equal(sidepanel.includes('Write your prompt in **Markdown** here.'), false)
 })
 
-test('inline code keeps theme background and uses white text', () => {
+test('inline code declares accessible light and dark custom-property tokens', () => {
   const css = readText('src', 'styles.css')
 
   assert.match(css, /\.ProseMirror :not\(pre\) > code/)
-  assert.match(css, /color:\s*#fff/)
-  assert.equal(css.includes('#fff1d6'), false)
-  assert.equal(css.includes('#7a2e00'), false)
-  assert.equal(css.includes('#3a2612'), false)
-  assert.equal(css.includes('#ffe0b2'), false)
-  assert.equal(/\.ProseMirror :not\(pre\) > code\s*\{[^}]*background:/s.test(css), false)
-  assert.equal(css.includes('color: var(--color-nord10)'), false)
+  assert.equal(css.includes('color: #fff'), false)
+  assert.match(css, /--inline-code-foreground:\s*#2e3440/)
+  assert.match(css, /--inline-code-background:\s*#e5e9f0/)
+  assert.match(css, /--inline-code-foreground:\s*#eceff4/)
+  assert.match(css, /--inline-code-background:\s*#3b4252/)
+  assert.equal(/#(?:7a2e00|fff1d6|ffe0b2|3a2612)\b/i.test(css), false)
+  assert.match(css, /@media\s*\(prefers-color-scheme:\s*dark\)/)
 })
 
 test('copy and clear actions use Milkdown markdown source APIs', () => {
