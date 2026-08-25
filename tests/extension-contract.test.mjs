@@ -42,14 +42,32 @@ const importTypeScriptModule = async (...segments) => {
   }
 }
 
-test('package lock uses public npm registry tarball URLs', () => {
+test('dependency sources and CI actions are immutable and public', () => {
   const lockfile = readText('package-lock.json')
+  const workflow = readText('.github', 'workflows', 'ci.yml')
 
   assert.equal(
     lockfile.includes('packages.applied-caas-gateway1.internal.api.openai.org'),
     false,
     'package-lock.json must not pin dependencies to the internal OpenAI npm gateway',
   )
+  const actionUses = [...workflow.matchAll(/^\s*- uses: ([^@\s]+)@([^\s]+) # (\S+)$/gm)]
+    .map(([, action, revision, version]) => ({ action, revision, version }))
+
+  assert.deepEqual(actionUses, [
+    {
+      action: 'actions/checkout',
+      revision: 'fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09',
+      version: 'v5',
+    },
+    {
+      action: 'actions/setup-node',
+      revision: 'a0853c24544627f65ddf259abe73b1d18a591444',
+      version: 'v5',
+    },
+  ])
+  assert.equal(actionUses.every(({ revision }) => /^[0-9a-f]{40}$/.test(revision)), true)
+  assert.equal(/uses:\s*actions\/(?:checkout|setup-node)@v5\b/.test(workflow), false)
 })
 
 test('source manifest and background configure side panel action click only', () => {
