@@ -89,11 +89,11 @@ test('side panel source keeps one inline Milkdown editor surface', () => {
   const html = readText('sidepanel.html')
   const sidepanel = readText('src', 'sidepanel.ts')
 
-  assert.match(html, /<main id="editor"[^>]*><\/main>/)
+  assert.match(html, /<div id="editor"[^>]*><\/div>/)
   assert.equal(/<textarea\b/i.test(html), false, 'side panel must not use textarea editing')
-  assert.equal(/preview/i.test(html), false, 'side panel must not add a preview split pane')
+  assert.equal(/id="preview"/i.test(html), false, 'side panel must not add a preview split pane')
   assert.match(sidepanel, /ctx\.set\(rootCtx,\s*editorRoot\)/)
-  assert.match(sidepanel, /ctx\.set\(defaultValueCtx,\s*sessionMarkdown\)/)
+  assert.match(sidepanel, /ctx\.set\(defaultValueCtx,\s*loadedSessionDraft\)/)
   assert.match(sidepanel, /\.use\(commonmark\)/)
 })
 
@@ -124,11 +124,11 @@ test('copy and clear actions use Milkdown markdown source APIs', () => {
   assert.match(sidepanel, /editor\.action\(getMarkdown\(\)\)\s*\?\?\s*currentMarkdown/)
   assert.match(sidepanel, /writeClipboard\(markdown\)/)
   assert.match(sidepanel, /falling back to execCommand/)
-  assert.match(sidepanel, /editor\.action\(replaceAll\(''\)\)/)
-  assert.match(sidepanel, /currentMarkdown\s*=\s*''/)
+  assert.match(sidepanel, /replaceEditorMarkdown\(''\)/)
+  assert.match(sidepanel, /sessionDraft\s*=\s*''/)
 })
 
-test('session draft uses chrome.storage.session only until browser restart', () => {
+test('session draft stays session-only while saved Library documents use local storage', () => {
   const manifest = readJson('public', 'manifest.json')
   const sidepanel = readText('src', 'sidepanel.ts')
 
@@ -140,10 +140,13 @@ test('session draft uses chrome.storage.session only until browser restart', () 
   assert.match(sidepanel, /const sessionDraftKey = 'miniMdSessionDraft'/)
   assert.match(sidepanel, /chrome\.storage\.session\.get\(sessionDraftKey\)/)
   assert.match(sidepanel, /chrome\.storage\.session\.set\(\{\s*\[sessionDraftKey\]: markdown\s*\}\)/)
-  assert.match(sidepanel, /ctx\.set\(defaultValueCtx,\s*sessionMarkdown\)/)
+  assert.match(sidepanel, /ctx\.set\(defaultValueCtx,\s*loadedSessionDraft\)/)
   assert.match(sidepanel, /persistSessionDraft\(markdown\)/)
   assert.match(sidepanel, /persistSessionDraft\(''\)/)
-  assert.equal(/chrome\.storage\.(local|sync)/.test(sidepanel), false)
+  assert.match(sidepanel, /const libraryKey = 'miniMdLibrary'/)
+  assert.match(sidepanel, /chrome\.storage\.local\.get\(libraryKey\)/)
+  assert.match(sidepanel, /chrome\.storage\.local\.set\(\{\s*\[libraryKey\]: documents\s*\}\)/)
+  assert.equal(/chrome\.storage\.sync/.test(sidepanel), false)
   assert.equal(/setAccessLevel/.test(sidepanel), false)
   assert.equal(/localStorage|sessionStorage/.test(sidepanel), false)
 })
@@ -191,7 +194,7 @@ test('copy markdown preserves hardbreak syntax before clipboard write', () => {
   assert.match(copyNormalizer, /\\\\_/)
   assert.match(
     sidepanel,
-    /const markdown = normalizeMarkdownForCopy\(\s*editor\.action\(getMarkdown\(\)\)\s*\?\?\s*currentMarkdown\s*\)/,
+    /const markdown = normalizeMarkdownForCopy\(\s*editor\.action\(getMarkdown\(\)\)\s*\?\?\s*currentMarkdown,?\s*\)/,
   )
   assert.match(sidepanel, /writeClipboard\(markdown\)/)
 })
@@ -298,10 +301,28 @@ test('side panel exposes separate canonical and compact copy actions', () => {
     html,
     /<button\s+id="copy-compact"[^>]*aria-label="Copy compact Markdown"[^>]*title="Copy compact Markdown"[^>]*>\s*Compact\s*<\/button>/,
   )
-  assert.match(sidepanel, /document\.querySelector<HTMLButtonElement>\('#copy-compact'\)/)
+  assert.match(sidepanel, /requireElement<HTMLButtonElement>\('#copy-compact'\)/)
   assert.match(sidepanel, /compactMarkdownBlocksForCopy/)
   assert.match(sidepanel, /editorViewCtx/)
   assert.match(css, /@media\s*\(max-width:\s*420px\)/)
+})
+
+test('side panel exposes persistent Editor and Library workflows', () => {
+  const html = readText('sidepanel.html')
+  const sidepanel = readText('src', 'sidepanel.ts')
+
+  assert.match(html, /id="tab-editor"[^>]*role="tab"[^>]*aria-controls="editor-view"/s)
+  assert.match(html, /id="tab-library"[^>]*role="tab"[^>]*aria-controls="library-view"/s)
+  assert.match(html, /id="save-draft"/)
+  assert.match(html, /id="save-document"/)
+  assert.match(html, /id="cancel-document"/)
+  assert.match(html, /id="delete-document"/)
+  assert.match(sidepanel, /createLibraryDocument/)
+  assert.match(sidepanel, /updateLibraryDocument/)
+  assert.match(sidepanel, /deleteLibraryDocument/)
+  assert.match(sidepanel, /event\.stopPropagation\(\)/)
+  assert.match(sidepanel, /Discard unsaved changes/)
+  assert.match(sidepanel, /Delete this saved document permanently/)
 })
 
 test('built extension artifacts are load-unpacked compatible and local-only', () => {

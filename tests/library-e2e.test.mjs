@@ -1,0 +1,435 @@
+import assert from 'node:assert/strict'
+import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import { after, before, describe, test } from 'node:test'
+import { chromium } from 'playwright'
+
+const root = path.resolve(import.meta.dirname, '..')
+const dist = path.join(root, 'dist')
+const evidence = path.join(root, '.omo', 'evidence', 'issue-5')
+const sessionDraftKey = 'miniMdSessionDraft'
+const libraryKey = 'miniMdLibrary'
+const titledMarkdown = '# Saved title\nFirst preview line\nSecond preview line'
+const untitledMarkdown = 'Untitled first line\nUntitled second line'
+const longMarkdown = `# Restart proof\n${'가나다라마바사'.repeat(520)}`
+const state = {
+  context: undefined,
+  page: undefined,
+  profile: '',
+  origin: '',
+  errors: [],
+  duplicateIds: [],
+  updatedDocumentId: '',
+}
+
+const launchExtension = async (profile) => {
+  const context = await chromium.launchPersistentContext(profile, {
+    headless: false,
+    viewport: { width: 375, height: 900 },
+    args: [`--disable-extensions-except=${dist}`, `--load-extension=${dist}`],
+  })
+  const worker = context.serviceWorkers()[0] ?? await context.waitForEvent('serviceworker')
+  const workerUrl = new URL(worker.url())
+  const origin = `${workerUrl.protocol}//${workerUrl.host}`
+  await context.grantPermissions(['clipboard-read', 'clipboard-write'])
+  const page = await context.newPage()
+  page.on('pageerror', (error) => state.errors.push(`page: ${error.message}`))
+  page.on('requestfailed', (request) => state.errors.push(`request: ${request.url()}`))
+  worker.on('console', (message) => {
+    if (message.type() === 'error') state.errors.push(`worker: ${message.text()}`)
+  })
+  await page.goto(`${origin}/sidepanel.html`)
+  await page.locator('.ProseMirror').waitFor()
+  return { context, page, origin }
+}
+
+const getLibrary = (page) =>
+  page.evaluate(async (key) => {
+    const stored = await chrome.storage.local.get(key)
+    return stored[key] ?? []
+  }, libraryKey)
+
+const waitForLibraryLength = (page, expectedLength, timeout = 5_000) =>
+  page.evaluate(
+    ({ key, expectedLength, timeout }) =>
+      new Promise((resolve, reject) => {
+        let listening = false
+        let settled = false
+        let timer
+        const settle = (callback, result) => {
+          if (settled) return
+          settled = true
+          window.clearTimeout(timer)
+          if (listening) chrome.storage.onChanged.removeListener(listener)
+          callback(result)
+        }
+        const matches = (value) =>
+          Array.isArray(value) && value.length === expectedLength
+        const listener = (changes, areaName) => {
+          if (areaName === 'local' && matches(changes[key]?.newValue)) {
+            settle(resolve, changes[key].newValue)
+          }
+        }
+        timer = window.setTimeout(
+          () => settle(reject, new Error('Timed out waiting for Library size change.')),
+          timeout,
+        )
+        listening = true
+        chrome.storage.onChanged.addListener(listener)
+        chrome.storage.local.get(key).then(
+          (stored) => {
+            if (matches(stored[key])) settle(resolve, stored[key])
+          },
+          (error) => settle(reject, error),
+        )
+      }),
+    { key: libraryKey, expectedLength, timeout },
+  )
+
+const setDraft = async (page, markdown) => {
+  await page.evaluate(
+    ({ key, markdown }) => chrome.storage.session.set({ [key]: markdown }),
+    { key: sessionDraftKey, markdown },
+  )
+  await page.reload()
+  await page.locator('.ProseMirror').waitFor()
+}
+
+const clickAndHandleDialog = async (page, locator, action) => {
+  const dialogPromise = page.waitForEvent('dialog')
+  const clickPromise = locator.click()
+  const dialog = await dialogPromise
+  const message = dialog.message()
+  await dialog[action]()
+  await clickPromise
+  return message
+}
+
+const screenshot = async (page, name) => {
+  if (process.env.CI !== 'true') {
+    await page.evaluate(
+      () =>
+        new Promise((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(resolve)),
+        ),
+    )
+    await page.screenshot({ path: path.join(evidence, name), fullPage: true })
+  }
+}
+
+describe('persistent prompt Library', { concurrency: false }, () => {
+  before(async () => {
+    mkdirSync(evidence, { recursive: true })
+    state.profile = mkdtempSync(path.join(os.tmpdir(), 'sidemarkdown-library-'))
+    const launched = await launchExtension(state.profile)
+    state.context = launched.context
+    state.page = launched.page
+    state.origin = launched.origin
+    await state.page.evaluate(
+      ({ sessionKey, localKey }) =>
+        Promise.all([
+          chrome.storage.session.remove(sessionKey),
+          chrome.storage.local.remove(localKey),
+        ]),
+      { sessionKey: sessionDraftKey, localKey: libraryKey },
+    )
+    await state.page.reload()
+    await state.page.locator('.ProseMirror').waitFor()
+  })
+
+  after(async () => {
+    try {
+      if (state.context) await state.context.close()
+    } finally {
+      const profile = state.profile
+      if (profile) rmSync(profile, { recursive: true, force: true })
+      writeFileSync(
+        path.join(evidence, 'runtime-errors.json'),
+        JSON.stringify(state.errors, null, 2),
+      )
+      writeFileSync(
+        path.join(evidence, 'cleanup-receipt.json'),
+        JSON.stringify({ profile, removed: !existsSync(profile) }, null, 2),
+      )
+    }
+  })
+
+  test('keeps the session draft separate while Editor and Library tabs switch', async () => {
+    // Given
+    await setDraft(state.page, titledMarkdown)
+
+    // When
+    await state.page.locator('#tab-library').click()
+
+    // Then
+    assert.equal(await state.page.locator('.library-card').count(), 0)
+    assert.equal(await state.page.locator('#tab-library').getAttribute('aria-selected'), 'true')
+    await screenshot(state.page, 'library-empty-light-375x900.png')
+    await state.page.locator('#tab-editor').click()
+    assert.match(await state.page.locator('.ProseMirror').textContent(), /Saved title/)
+    assert.equal((await getLibrary(state.page)).length, 0)
+  })
+
+  test('creates duplicate cards without leaving or clearing the draft Editor', async () => {
+    // Given
+    const firstSave = waitForLibraryLength(state.page, 1)
+
+    // When
+    await state.page.locator('#save-draft').click()
+    await firstSave
+    const secondSave = waitForLibraryLength(state.page, 2)
+    await state.page.locator('#save-draft').click()
+    const documents = await secondSave
+
+    // Then
+    assert.equal(await state.page.locator('#tab-editor').getAttribute('aria-selected'), 'true')
+    assert.match(await state.page.locator('.ProseMirror').textContent(), /Saved title/)
+    assert.equal(documents[0].markdown, titledMarkdown)
+    assert.equal(documents[1].markdown, titledMarkdown)
+    assert.notEqual(documents[0].id, documents[1].id)
+    state.duplicateIds = documents.map(({ id }) => id)
+    await state.page.locator('#tab-library').click()
+    assert.equal(await state.page.locator('.library-card').count(), 2)
+    assert.equal(
+      await state.page.locator('.library-card').first().locator('.library-card-title').textContent(),
+      'Saved title',
+    )
+    assert.match(
+      await state.page.locator('.library-card').first().locator('.library-card-preview').textContent(),
+      /First preview line/,
+    )
+    await screenshot(state.page, 'library-titled-light-375x900.png')
+  })
+
+  test('shows untitled preview and copies the exact saved Markdown from the card', async () => {
+    // Given
+    await state.page.locator('#tab-editor').click()
+    await setDraft(state.page, untitledMarkdown)
+    const saved = waitForLibraryLength(state.page, 3)
+    await state.page.locator('#save-draft').click()
+    await saved
+    await state.page.locator('#tab-library').click()
+    const firstCard = state.page.locator('.library-card').first()
+
+    // When
+    await firstCard.locator('.library-card-copy').click()
+
+    // Then
+    assert.equal(await firstCard.locator('.library-card-title').count(), 0)
+    assert.match(
+      await firstCard.locator('.library-card-preview').textContent(),
+      /^Untitled first line/,
+    )
+    assert.deepEqual(
+      await state.page.locator('.library-card').evaluateAll((cards) =>
+        cards.map((card) => card.textContent?.trim()),
+      ),
+      [
+        'Untitled first line\nUntitled second line',
+        'Saved titleFirst preview line\nSecond preview line',
+        'Saved titleFirst preview line\nSecond preview line',
+      ],
+    )
+    assert.equal(
+      (await state.page.evaluate(() => navigator.clipboard.readText())).replace(
+        /\r\n?/g,
+        '\n',
+      ),
+      untitledMarkdown,
+    )
+    await screenshot(state.page, 'library-untitled-light-375x900.png')
+  })
+
+  test('edits one card without copying or overwriting the session draft', async () => {
+    // Given
+    const firstCard = state.page.locator('.library-card').first()
+    const selectedId = await firstCard.getAttribute('data-document-id')
+    await state.page.evaluate(() => navigator.clipboard.writeText('__edit_sentinel__'))
+
+    // When
+    await firstCard.hover()
+    await firstCard.locator('.library-card-edit').click()
+
+    // Then
+    assert.equal(await state.page.evaluate(() => navigator.clipboard.readText()), '__edit_sentinel__')
+    assert.equal(await state.page.locator('#tab-editor').getAttribute('aria-selected'), 'true')
+    assert.match(await state.page.locator('#editor-mode').textContent(), /Editing saved document/)
+    await screenshot(state.page, 'library-editing-light-375x900.png')
+    assert.equal(
+      (await state.page.evaluate((key) => chrome.storage.session.get(key), sessionDraftKey))[
+        sessionDraftKey
+      ],
+      untitledMarkdown,
+    )
+
+    await state.page.locator('.ProseMirror').press('End')
+    await state.page.locator('.ProseMirror').pressSequentially(' updated')
+    const beforeUpdate = await getLibrary(state.page)
+    await state.page.locator('#save-document').click()
+    const afterUpdate = await getLibrary(state.page)
+    assert.equal(afterUpdate.length, beforeUpdate.length)
+    assert.equal(afterUpdate[0].id, selectedId)
+    assert.match(afterUpdate[0].markdown, /updated/)
+    assert.ok(afterUpdate[0].updatedAt >= beforeUpdate[0].updatedAt)
+    assert.equal(await state.page.locator('#tab-library').getAttribute('aria-selected'), 'true')
+    state.updatedDocumentId = selectedId
+
+    const beforeCopy = await getLibrary(state.page)
+    await state.page.locator('.library-card').first().locator('.library-card-copy').click()
+    const afterCopy = await getLibrary(state.page)
+    assert.deepEqual(afterCopy, beforeCopy)
+  })
+
+  test('cancels saved edits and confirms before discarding changed tab navigation', async () => {
+    // Given
+    const targetCard = state.page.locator(
+      `.library-card[data-document-id="${state.updatedDocumentId}"]`,
+    )
+    await targetCard.hover()
+    await targetCard.locator('.library-card-edit').click()
+    const storedBefore = await getLibrary(state.page)
+    await state.page.locator('.ProseMirror').press('End')
+    await state.page.locator('.ProseMirror').pressSequentially(' discarded')
+
+    // When
+    const dismissedMessage = await clickAndHandleDialog(
+      state.page,
+      state.page.locator('#tab-library'),
+      'dismiss',
+    )
+
+    // Then
+    assert.match(dismissedMessage, /discard/i)
+    assert.equal(await state.page.locator('#tab-editor').getAttribute('aria-selected'), 'true')
+    assert.deepEqual(await getLibrary(state.page), storedBefore)
+
+    const acceptedMessage = await clickAndHandleDialog(
+      state.page,
+      state.page.locator('#tab-library'),
+      'accept',
+    )
+    assert.match(acceptedMessage, /discard/i)
+    assert.equal(await state.page.locator('#tab-library').getAttribute('aria-selected'), 'true')
+    assert.deepEqual(await getLibrary(state.page), storedBefore)
+    await state.page.locator('#tab-editor').click()
+    assert.match(await state.page.locator('.ProseMirror').textContent(), /Untitled first line/)
+
+    await state.page.locator('#tab-library').click()
+    await targetCard.hover()
+    await targetCard.locator('.library-card-edit').click()
+    await state.page.locator('.ProseMirror').press('End')
+    await state.page.locator('.ProseMirror').pressSequentially(' cancel')
+    await state.page.locator('#cancel-document').click()
+    assert.equal(await state.page.locator('#tab-library').getAttribute('aria-selected'), 'true')
+    assert.deepEqual(await getLibrary(state.page), storedBefore)
+  })
+
+  test('requires confirmation before deleting one saved document', async () => {
+    // Given
+    const targetCard = state.page.locator(
+      `.library-card[data-document-id="${state.updatedDocumentId}"]`,
+    )
+    await targetCard.hover()
+    await targetCard.locator('.library-card-edit').click()
+    const beforeDelete = await getLibrary(state.page)
+
+    // When / Then: cancel
+    const dismissedMessage = await clickAndHandleDialog(
+      state.page,
+      state.page.locator('#delete-document'),
+      'dismiss',
+    )
+    assert.match(dismissedMessage, /delete/i)
+    assert.match(await state.page.locator('#editor-mode').textContent(), /Editing saved document/)
+    assert.deepEqual(await getLibrary(state.page), beforeDelete)
+
+    // When / Then: confirm
+    const deleted = waitForLibraryLength(state.page, beforeDelete.length - 1)
+    const acceptedMessage = await clickAndHandleDialog(
+      state.page,
+      state.page.locator('#delete-document'),
+      'accept',
+    )
+    await deleted
+    assert.match(acceptedMessage, /delete/i)
+    assert.equal(await state.page.locator('#tab-library').getAttribute('aria-selected'), 'true')
+    assert.equal(
+      (await getLibrary(state.page)).some(({ id }) => id === state.updatedDocumentId),
+      false,
+    )
+    assert.equal(
+      (await state.page.evaluate((key) => chrome.storage.session.get(key), sessionDraftKey))[
+        sessionDraftKey
+      ],
+      untitledMarkdown,
+    )
+  })
+
+  test('keeps a 3000-plus-character document after a complete Chrome restart', async () => {
+    // Given
+    await state.page.locator('#tab-editor').click()
+    await setDraft(state.page, longMarkdown)
+    const beforeSave = await getLibrary(state.page)
+    const saved = waitForLibraryLength(state.page, beforeSave.length + 1)
+    await state.page.locator('#save-draft').click()
+    await saved
+    await state.context.close()
+
+    // When
+    const relaunched = await launchExtension(state.profile)
+    state.context = relaunched.context
+    state.page = relaunched.page
+    state.origin = relaunched.origin
+    await state.page.locator('#tab-library').click()
+    const restartCard = state.page.locator('.library-card').first()
+    await restartCard.locator('.library-card-copy').click()
+
+    // Then
+    assert.ok(longMarkdown.length > 3_000)
+    assert.equal(await restartCard.locator('.library-card-title').textContent(), 'Restart proof')
+    assert.equal(
+      (await state.page.evaluate(() => navigator.clipboard.readText())).replace(
+        /\r\n?/g,
+        '\n',
+      ),
+      longMarkdown,
+    )
+    assert.equal(
+      (await state.page.evaluate((key) => chrome.storage.session.get(key), sessionDraftKey))[
+        sessionDraftKey
+      ],
+      undefined,
+    )
+    await screenshot(state.page, 'library-restarted-light-375x900.png')
+  })
+
+  test('keeps Library controls in view in light and dark at all target widths', async () => {
+    // Given / When / Then
+    for (const colorScheme of ['light', 'dark']) {
+      await state.page.emulateMedia({ colorScheme })
+      for (const width of [375, 768, 1280]) {
+        await state.page.setViewportSize({ width, height: 900 })
+        const layout = await state.page.evaluate(() => ({
+          bodyFits: document.body.scrollWidth <= document.body.clientWidth,
+          headerFits:
+            document.querySelector('.app-header').scrollWidth <=
+            document.querySelector('.app-header').clientWidth,
+          cardFits: [...document.querySelectorAll('.library-card')].every(
+            (card) => card.scrollWidth <= card.clientWidth,
+          ),
+        }))
+        assert.deepEqual(layout, {
+          bodyFits: true,
+          headerFits: true,
+          cardFits: true,
+        })
+        await screenshot(
+          state.page,
+          `library-${colorScheme}-${width}x900.png`,
+        )
+      }
+    }
+    assert.deepEqual(state.errors, [])
+  })
+})
