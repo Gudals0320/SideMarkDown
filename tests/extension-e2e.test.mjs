@@ -14,6 +14,45 @@ const issueMarkdown = '# Test\n\n## H2\n\n### H3\n\n테스트입니다.\n\n테�
 const compactIssueMarkdown = '# Test\n## H2\n### H3\n테스트입니다.\n테스트입니다.'
 const hardbreakMarkdown = 'First\\\nSecond\n'
 const compactHardbreakMarkdown = 'First\\\nSecond'
+const themeImageDataUrl = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0MDAiIGhlaWdodD0iMjAwIiByb2xlPSJpbWciPjxyZWN0IHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiIGZpbGw9IiMzNTU4ODQiLz48dGV4dCB4PSI0MCIgeT0iMTEwIiBmaWxsPSIjZmZmZGY4IiBmb250LXNpemU9IjMyIj5UaGVtZSBmaXh0dXJlPC90ZXh0Pjwvc3ZnPg=='
+const commonmarkStressMarkdown = [
+  '# H1 paper heading',
+  '',
+  '## H2 section',
+  '',
+  '### H3 subsection',
+  '',
+  '#### H4 compact',
+  '',
+  '##### H5 compact',
+  '',
+  '###### H6 compact',
+  '',
+  'Paragraph with **strong ink**, *emphasis*, [accent link](https://example.test/theme), and `warm-inline`.',
+  '',
+  `![Theme fixture](${themeImageDataUrl})`,
+  '',
+  '> Quote surface with restrained editorial rhythm.',
+  '',
+  '- Bullet root',
+  '  - Bullet second',
+  '    - Bullet third',
+  '',
+  '1. Ordered root',
+  '   1. Ordered second',
+  '      1. Ordered third',
+  '',
+  '---',
+  '',
+  'Hard break first\\',
+  'Hard break second',
+  '',
+  '```text',
+  'overlong_code_identifier_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_한국어_日本語_中文_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789',
+  '```',
+  '',
+  'CJK paragraph 한국어 日本語 中文 and https://example.test/very-long-url/ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_한국어_日本語_中文.',
+].join('\n')
 const structuralMarkdown = [
   '# Structure',
   '',
@@ -243,6 +282,188 @@ describe('unpacked SideMarkDown extension', { concurrency: false }, () => {
       await screenshot(state.page, `manual-inline-code-${colorScheme}-375x900.png`)
     }
     await state.page.emulateMedia({ colorScheme: 'light' })
+  })
+
+  test('renders every active CommonMark semantic with the paper-surface hierarchy', async () => {
+    const page = state.page
+    try {
+      await page.evaluate(
+        ({ key, markdown }) => chrome.storage.session.set({ [key]: markdown }),
+        { key: draftKey, markdown: commonmarkStressMarkdown },
+      )
+      await page.reload()
+      await page.locator('.ProseMirror h6').waitFor()
+      const image = page.locator('.ProseMirror img[alt="Theme fixture"]')
+      const imageBefore = await image.boundingBox()
+      await image.click()
+      await page.waitForFunction(() => document.querySelector('.ProseMirror img')?.classList.contains('ProseMirror-selectednode'))
+      const imageAfter = await image.boundingBox()
+      const styles = await page.evaluate(() => {
+        const style = (selector) => {
+          const node = document.querySelector(selector)
+          if (!node) throw new Error(`Missing semantic fixture node: ${selector}`)
+          const computed = getComputedStyle(node)
+          return {
+            color: computed.color,
+            backgroundColor: computed.backgroundColor,
+            borderColor: computed.borderColor,
+            borderLeftWidth: computed.borderLeftWidth,
+            borderTopWidth: computed.borderTopWidth,
+            borderRadius: computed.borderRadius,
+            caretColor: computed.caretColor,
+            fontSize: computed.fontSize,
+            fontStyle: computed.fontStyle,
+            fontWeight: computed.fontWeight,
+            lineHeight: computed.lineHeight,
+            marginBottom: computed.marginBottom,
+            marginTop: computed.marginTop,
+            maxWidth: computed.maxWidth,
+            outlineColor: computed.outlineColor,
+            outlineStyle: computed.outlineStyle,
+            outlineWidth: computed.outlineWidth,
+            overflowWrap: computed.overflowWrap,
+            overflowX: computed.overflowX,
+            padding: computed.padding,
+            paddingBottom: computed.paddingBottom,
+            paddingLeft: computed.paddingLeft,
+            paddingRight: computed.paddingRight,
+            paddingTop: computed.paddingTop,
+            textDecorationLine: computed.textDecorationLine,
+            textUnderlineOffset: computed.textUnderlineOffset,
+            whiteSpace: computed.whiteSpace,
+          }
+        }
+        const editor = document.querySelector('.ProseMirror')
+        const range = document.createRange()
+        const text = editor?.querySelector('p')?.firstChild
+        if (!editor || !text) throw new Error('Missing selection fixture text.')
+        range.setStart(text, 0)
+        range.setEnd(text, Math.min(9, text.textContent?.length ?? 0))
+        const selection = window.getSelection()
+        selection?.removeAllRanges()
+        selection?.addRange(range)
+        editor.focus()
+        return {
+          editor: style('.ProseMirror'),
+          headings: ['h1', 'h2', 'h3', 'h4', 'h5', 'h6'].map((tag) => style(`.ProseMirror ${tag}`)),
+          paragraph: style('.ProseMirror p'),
+          strong: style('.ProseMirror strong'),
+          emphasis: style('.ProseMirror em'),
+          link: style('.ProseMirror a'),
+          image: style('.ProseMirror img'),
+          quote: style('.ProseMirror blockquote'),
+          unordered: style('.ProseMirror ul'),
+          ordered: style('.ProseMirror ol'),
+          rule: style('.ProseMirror hr'),
+          inlineCode: style('.ProseMirror :not(pre) > code'),
+          fencedCode: style('.ProseMirror pre'),
+          hardbreakCount: document.querySelectorAll('.ProseMirror [data-type="hardbreak"]').length,
+          selectedText: selection?.toString(),
+          selection: getComputedStyle(editor).getPropertyValue('color'),
+          bodyFits: document.body.scrollWidth <= document.body.clientWidth,
+          editorFits: editor.scrollWidth <= editor.clientWidth,
+          codeScrolls: editor.querySelector('pre')?.scrollWidth > editor.querySelector('pre')?.clientWidth,
+          imageAlt: document.querySelector('.ProseMirror img')?.getAttribute('alt'),
+          renderedText: editor.textContent,
+        }
+      })
+
+      const assertPaperGeometry = async (width, expectedPadding) => {
+        await page.setViewportSize({ width, height: 900 })
+        const geometry = await page.evaluate(() => {
+          const editor = document.querySelector('.ProseMirror')
+          const scrollSurface = document.querySelector('#editor')
+          if (!editor || !scrollSurface) throw new Error('Missing paper or editor scroll surface.')
+          const style = getComputedStyle(editor)
+          const paper = editor.getBoundingClientRect()
+          const surface = scrollSurface.getBoundingClientRect()
+          const zoom = Number.parseFloat(getComputedStyle(document.documentElement).zoom) || 1
+          return {
+            active: document.activeElement === editor,
+            bodyFits: document.body.scrollWidth <= document.body.clientWidth,
+            zoom,
+            paper: { left: paper.left / zoom, right: paper.right / zoom, width: paper.width / zoom },
+            surface: { left: surface.left, right: surface.left + scrollSurface.clientWidth, width: scrollSurface.clientWidth },
+            maxWidth: style.maxWidth,
+            paddingTop: style.paddingTop,
+            paddingRight: style.paddingRight,
+            paddingBottom: style.paddingBottom,
+            paddingLeft: style.paddingLeft,
+            proseMeasure: paper.width - Number.parseFloat(style.paddingLeft) - Number.parseFloat(style.paddingRight),
+          }
+        })
+        assert.ok(Math.abs(geometry.paper.width - geometry.surface.width) <= 1, `paper must fill the editor scroll surface at ${width}px`)
+        assert.ok(Math.abs(geometry.paper.left - geometry.surface.left) <= 1, `paper must begin at the editor scroll surface at ${width}px`)
+        assert.equal(geometry.maxWidth, 'none')
+        assert.equal(geometry.paddingTop, expectedPadding.top)
+        assert.equal(geometry.paddingBottom, expectedPadding.bottom)
+        if (expectedPadding.inline) {
+          assert.equal(geometry.paddingLeft, expectedPadding.inline)
+          assert.equal(geometry.paddingRight, expectedPadding.inline)
+        }
+        assert.equal(geometry.bodyFits, true)
+        if (width > 420 && geometry.zoom === 1) assert.ok(geometry.proseMeasure <= 577 && geometry.proseMeasure >= 575, `wide prose measure must remain near 72ch at ${width}px`)
+        if (geometry.zoom === 1) {
+          await page.locator('.ProseMirror').click({
+            position: { x: geometry.paper.width - Number.parseFloat(geometry.paddingRight) / 2, y: 10 },
+          })
+        } else {
+          await page.locator('.ProseMirror').focus()
+        }
+        assert.equal(await page.locator('.ProseMirror').evaluate((node) => document.activeElement === node), true, `wide paper gutter must focus the editor at ${width}px`)
+      }
+      await assertPaperGeometry(375, { top: '20px', inline: '16px', bottom: '40px' })
+      await assertPaperGeometry(768, { top: '24px', bottom: '48px' })
+      await assertPaperGeometry(1280, { top: '24px', bottom: '48px' })
+      await page.evaluate(() => { document.documentElement.style.zoom = '2' })
+      await assertPaperGeometry(1280, { top: '24px', bottom: '48px' })
+      await page.evaluate(() => { document.documentElement.style.zoom = '' })
+      await page.setViewportSize({ width: 375, height: 900 })
+
+      assert.deepEqual(styles.headings.map(({ fontSize, lineHeight, fontWeight }) => ({ fontSize, lineHeight, fontWeight })), [
+        { fontSize: '26px', lineHeight: '31.2px', fontWeight: '700' },
+        { fontSize: '21px', lineHeight: '27.3px', fontWeight: '700' },
+        { fontSize: '17px', lineHeight: '23.8px', fontWeight: '600' },
+        { fontSize: '15px', lineHeight: '22.5px', fontWeight: '600' },
+        { fontSize: '15px', lineHeight: '22.5px', fontWeight: '600' },
+        { fontSize: '15px', lineHeight: '22.5px', fontWeight: '600' },
+      ])
+      assert.equal(styles.editor.fontSize, '15px')
+      assert.equal(styles.editor.lineHeight, '25.8px')
+      assert.equal(styles.editor.overflowWrap, 'anywhere')
+      assert.equal(styles.strong.fontWeight, '700')
+      assert.equal(styles.emphasis.fontStyle, 'italic')
+      assert.equal(styles.link.textDecorationLine, 'underline')
+      assert.equal(styles.link.textUnderlineOffset, '2px')
+      assert.equal(styles.quote.borderLeftWidth, '3px')
+      assert.equal(styles.rule.borderTopWidth, '1px')
+      assert.equal(styles.inlineCode.borderRadius, '4px')
+      assert.equal(styles.fencedCode.padding, '14px 16px')
+      assert.equal(styles.fencedCode.borderRadius, '6px')
+      assert.equal(styles.fencedCode.overflowX, 'auto')
+      assert.equal(styles.fencedCode.whiteSpace, 'pre')
+      assert.equal(styles.image.maxWidth, '100%')
+      assert.equal(styles.image.outlineWidth, '2px')
+      assert.equal(styles.image.outlineStyle, 'solid')
+      assert.equal(styles.hardbreakCount, 1)
+      assert.equal(styles.imageAlt, 'Theme fixture')
+      assert.equal(styles.bodyFits, true)
+      assert.equal(styles.editorFits, true)
+      assert.equal(styles.codeScrolls, true)
+      assert.equal(styles.renderedText.includes('# H1'), false)
+      assert.equal(styles.renderedText.includes('```'), false)
+      assert.ok(styles.selectedText.length > 0)
+      assert.ok(imageBefore && imageAfter)
+      assert.deepEqual(imageAfter, imageBefore)
+      assert.deepEqual(state.errors, [])
+    } finally {
+      await page.evaluate(
+        ({ key, markdown }) => chrome.storage.session.set({ [key]: markdown }),
+        { key: draftKey, markdown: sourceMarkdown },
+      )
+      await page.reload()
+      await page.locator('.ProseMirror code').waitFor()
+    }
   })
 
   test('reaches the editor by Tab with a visible 2px focus outline', async () => {
