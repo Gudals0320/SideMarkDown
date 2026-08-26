@@ -145,6 +145,7 @@ All spacing derives from a base of **4px**: `--space-1` 4px, `--space-2` 8px, `-
 ### Timing and rules
 
 - Micro-interactions use **120ms** `ease-out` transitions of **transform, opacity, and color** only. They communicate press, active, focus, selection, or status change; no decorative motion is allowed.
+- The reviewed tabs/action-swap patterns reinforce the existing interaction contract: keyboard focus moves independently from tab activation, a newer transient result interrupts and replaces the prior one, and reduced motion preserves the final state without an animated swap. SideMarkDown keeps its existing 120ms CSS treatment and adds no dependency.
 - Every interactive control has default, hover, active, focus-visible, disabled, loading, and error/empty behavior where applicable. No animation changes layout properties.
 - `prefers-reduced-motion` disables nonessential transitions and animations while preserving state legibility.
 - Long status text is visually ellipsized in the top row at narrow widths, while its complete DOM text remains available to assistive technology.

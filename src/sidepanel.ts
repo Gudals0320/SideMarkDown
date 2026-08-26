@@ -93,6 +93,7 @@ type EditorMode =
     }
 
 type PanelView = 'editor' | 'library'
+type StatusKind = 'success' | 'error'
 type LibraryMutation = (
   documents: readonly LibraryDocument[],
 ) => readonly LibraryDocument[]
@@ -123,12 +124,12 @@ for (const button of [
 editorTab.disabled = true
 libraryTab.disabled = true
 
-const setStatus = (message: string) => {
+const setStatus = (message: string, kind: StatusKind = 'success') => {
   status.textContent = message
   if (statusTimer) window.clearTimeout(statusTimer)
   statusTimer = window.setTimeout(() => {
     status.textContent = ''
-  }, 1_400)
+  }, kind === 'success' ? 2_500 : 5_000)
 }
 
 const logWarning = (message: string, error: unknown) => {
@@ -159,7 +160,6 @@ const loadLibraryDocuments = async (): Promise<readonly LibraryDocument[]> => {
   } catch (error) {
     // no-excuse-ok: catch -- extension storage is a top-level UI boundary.
     logWarning('Failed to load prompt Library.', error)
-    setStatus('Library failed to load')
     return []
   }
 }
@@ -238,6 +238,8 @@ const setPanelView = (view: PanelView) => {
   editorActions.hidden = !editorIsActive
   editorTab.setAttribute('aria-selected', String(editorIsActive))
   libraryTab.setAttribute('aria-selected', String(!editorIsActive))
+  editorTab.tabIndex = editorIsActive ? 0 : -1
+  libraryTab.tabIndex = editorIsActive ? -1 : 0
   if (!editorIsActive) renderLibrary()
 }
 
@@ -248,7 +250,18 @@ const setDocumentActionVisibility = (editingSavedDocument: boolean) => {
   for (const element of document.querySelectorAll<HTMLElement>('.document-action')) {
     element.hidden = !editingSavedDocument
   }
+  editorActions.dataset.mode = editingSavedDocument ? 'saved-document' : 'draft'
   editorModeIndicator.hidden = !editingSavedDocument
+}
+
+const renderSavedDocumentContext = () => {
+  if (editorMode.kind !== 'saved-document') {
+    editorModeIndicator.hidden = true
+    return
+  }
+
+  editorModeIndicator.hidden = false
+  editorModeIndicator.textContent = `Editing saved document — ${editorMode.isDirty ? 'Unsaved changes' : 'Saved'}`
 }
 
 const replaceEditorMarkdown = (markdown: string) => {
@@ -266,6 +279,7 @@ const replaceEditorMarkdown = (markdown: string) => {
 const restoreDraftEditor = () => {
   editorMode = { kind: 'draft' }
   setDocumentActionVisibility(false)
+  renderSavedDocumentContext()
   replaceEditorMarkdown(sessionDraft)
 }
 
@@ -293,6 +307,7 @@ const editLibraryDocument = (documentId: LibraryDocumentId) => {
     baselineMarkdown: editor?.action(getMarkdown()) ?? selectedDocument.markdown,
   }
   setPanelView('editor')
+  renderSavedDocumentContext()
   editorRoot.querySelector<HTMLElement>('.ProseMirror')?.focus()
 }
 
@@ -352,7 +367,7 @@ function renderLibrary() {
         .catch((error: unknown) => {
           // no-excuse-ok: catch -- click handler reports clipboard boundary failure.
           logWarning('Failed to copy saved document.', error)
-          setStatus('Copy failed')
+          setStatus('Copy failed', 'error')
         })
     })
 
@@ -387,6 +402,10 @@ const createEditor = async () => {
       ctx.set(defaultValueCtx, loadedSessionDraft)
       ctx.update(editorViewOptionsCtx, (options) => ({
         ...options,
+        attributes: {
+          ...options.attributes,
+          'data-placeholder': 'Start writing…',
+        },
         clipboardTextSerializer: (slice) => {
           const doc = ctx
             .get(schemaCtx)
@@ -411,6 +430,7 @@ const createEditor = async () => {
               ...activeMode,
               isDirty: markdown !== activeMode.baselineMarkdown,
             }
+            renderSavedDocumentContext()
             break
           default:
             assertNever(activeMode)
@@ -441,11 +461,7 @@ const createEditor = async () => {
   setPanelView(currentView)
 }
 
-editorTab.addEventListener('click', () => {
-  setPanelView('editor')
-})
-
-libraryTab.addEventListener('click', () => {
+const activateLibraryTab = () => {
   const activeMode = editorMode
   switch (activeMode.kind) {
     case 'draft':
@@ -457,6 +473,8 @@ libraryTab.addEventListener('click', () => {
         (activeMode.isDirty || liveMarkdown !== activeMode.baselineMarkdown) &&
         !window.confirm('Discard unsaved changes to this saved document?')
       ) {
+        setPanelView('editor')
+        editorTab.focus()
         return
       }
       finishSavedDocumentEditing()
@@ -464,6 +482,44 @@ libraryTab.addEventListener('click', () => {
     default:
       assertNever(activeMode)
   }
+}
+
+const focusTab = (tab: HTMLButtonElement) => {
+  tab.focus()
+}
+
+for (const tab of [editorTab, libraryTab]) {
+  tab.addEventListener('keydown', (event) => {
+    switch (event.key) {
+      case 'ArrowLeft':
+      case 'ArrowRight':
+        event.preventDefault()
+        focusTab(tab === editorTab ? libraryTab : editorTab)
+        break
+      case 'Home':
+        event.preventDefault()
+        focusTab(editorTab)
+        break
+      case 'End':
+        event.preventDefault()
+        focusTab(libraryTab)
+        break
+      case 'Enter':
+      case ' ':
+        event.preventDefault()
+        if (tab === editorTab) setPanelView('editor')
+        else activateLibraryTab()
+        break
+    }
+  })
+}
+
+editorTab.addEventListener('click', () => {
+  setPanelView('editor')
+})
+
+libraryTab.addEventListener('click', () => {
+  activateLibraryTab()
 })
 
 copyButton.addEventListener('click', async () => {
@@ -478,7 +534,7 @@ copyButton.addEventListener('click', async () => {
   } catch (error) {
     // no-excuse-ok: catch -- click handler reports clipboard boundary failure.
     logWarning('Failed to copy Markdown.', error)
-    setStatus('Copy failed')
+    setStatus('Copy failed', 'error')
   }
 })
 
@@ -506,7 +562,7 @@ compactCopyButton.addEventListener('click', async () => {
   } catch (error) {
     // no-excuse-ok: catch -- click handler reports clipboard boundary failure.
     logWarning('Failed to copy compact Markdown.', error)
-    setStatus('Copy failed')
+    setStatus('Copy failed', 'error')
   }
 })
 
@@ -515,7 +571,7 @@ clearButton.addEventListener('click', () => {
   replaceEditorMarkdown('')
   sessionDraft = ''
   persistSessionDraft('')
-  setStatus('Cleared')
+  setStatus('Draft cleared')
 })
 
 saveDraftButton.addEventListener('click', async () => {
@@ -535,11 +591,11 @@ saveDraftButton.addEventListener('click', async () => {
         ),
       }),
     )
-    setStatus('Saved')
+    setStatus('Saved to Library')
   } catch (error) {
     // no-excuse-ok: catch -- click handler reports local storage failure.
     logWarning('Failed to save a new Library document.', error)
-    setStatus('Save failed')
+    setStatus('Save failed', 'error')
   }
 })
 
@@ -564,12 +620,17 @@ saveDocumentButton.addEventListener('click', async () => {
             ),
           }),
         )
-        finishSavedDocumentEditing()
-        setStatus('Saved')
+        editorMode = {
+          ...activeMode,
+          baselineMarkdown: markdown,
+          isDirty: false,
+        }
+        renderSavedDocumentContext()
+        setStatus('Changes saved')
       } catch (error) {
         // no-excuse-ok: catch -- click handler reports local storage failure.
         logWarning('Failed to update the Library document.', error)
-        setStatus('Save failed')
+        setStatus('Save failed', 'error')
       }
       break
     default:
@@ -592,16 +653,16 @@ deleteDocumentButton.addEventListener('click', async () => {
       deleteLibraryDocument(documents, documentId),
     )
     finishSavedDocumentEditing()
-    setStatus('Deleted')
+    setStatus('Document deleted')
   } catch (error) {
     // no-excuse-ok: catch -- click handler reports local storage failure.
     logWarning('Failed to delete the Library document.', error)
-    setStatus('Delete failed')
+    setStatus('Delete failed', 'error')
   }
 })
 
 createEditor().catch((error: unknown) => {
   // no-excuse-ok: catch -- application bootstrap is the top-level UI boundary.
   logWarning('Failed to create the editor.', error)
-  setStatus('Editor failed to load')
+  setStatus('Editor failed to load', 'error')
 })

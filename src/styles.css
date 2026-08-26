@@ -205,6 +205,19 @@ button:disabled {
 }
 
 .editor-mode {
+  margin: 0;
+  padding: 4px 8px;
+  color: var(--color-ink-muted);
+  font-size: 12px;
+}
+
+.ProseMirror[data-placeholder]:not(:focus-within) > p:only-child:has(> br.ProseMirror-trailingBreak:only-child)::before {
+  content: attr(data-placeholder);
+  pointer-events: none;
+  color: var(--color-ink-faint);
+}
+
+.editor-mode {
   flex: none;
   margin: 0;
   padding: 6px 12px;

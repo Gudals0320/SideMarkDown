@@ -10,10 +10,10 @@
       <div class="topbar">
         <strong class="app-title">SideMarkDown</strong>
         <nav class="tabs" role="tablist" aria-label="SideMarkDown sections">
-          <button id="tab-editor" class="tab" type="button" role="tab" aria-selected="true" aria-controls="editor-view">Editor</button>
-          <button id="tab-library" class="tab" type="button" role="tab" aria-selected="false" aria-controls="library-view">Library</button>
+          <button id="tab-editor" class="tab" type="button" role="tab" aria-selected="true" aria-controls="editor-view" tabindex="0">Editor</button>
+          <button id="tab-library" class="tab" type="button" role="tab" aria-selected="false" aria-controls="library-view" tabindex="-1">Library</button>
         </nav>
-        <p id="status" role="status" aria-live="polite"></p>
+        <p id="status" role="status" aria-live="polite" aria-atomic="true"></p>
       </div>
       <div id="editor-actions" class="toolbar-actions">
         <div class="copy-actions" aria-label="Copy actions">

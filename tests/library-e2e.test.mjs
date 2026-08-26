@@ -311,9 +311,11 @@ describe('persistent prompt Library', { concurrency: false }, () => {
     assert.equal(afterUpdate[0].id, selectedId)
     assert.match(afterUpdate[0].markdown, /updated/)
     assert.ok(afterUpdate[0].updatedAt >= beforeUpdate[0].updatedAt)
-    assert.equal(await state.page.locator('#tab-library').getAttribute('aria-selected'), 'true')
+    assert.equal(await state.page.locator('#tab-editor').getAttribute('aria-selected'), 'true')
+    assert.equal(await state.page.locator('#editor-mode').textContent(), 'Editing saved document — Saved')
     state.updatedDocumentId = selectedId
 
+    await state.page.locator('#tab-library').click()
     const beforeCopy = await getLibrary(state.page)
     await state.page.locator('.library-card').first().locator('.library-card-copy').click()
     const afterCopy = await getLibrary(state.page)
@@ -479,7 +481,10 @@ describe('persistent prompt Library', { concurrency: false }, () => {
     await state.page.locator('.ProseMirror').waitFor()
     await state.page.locator('#tab-library').click()
     const edit = state.page.locator('.library-card-edit').first()
-    assert.equal(await edit.evaluate((node) => getComputedStyle(node).opacity), '0.72')
+    const expectedIdleEditOpacity = await state.page.evaluate(() =>
+      matchMedia('(hover: none)').matches ? '1' : '0.72',
+    )
+    assert.equal(await edit.evaluate((node) => getComputedStyle(node).opacity), expectedIdleEditOpacity)
     await edit.click()
 
     // When / Then
@@ -595,5 +600,217 @@ describe('persistent prompt Library', { concurrency: false }, () => {
       assert.equal(await save.evaluate((node) => getComputedStyle(node).opacity), '0.55')
       await save.evaluate((node) => { node.disabled = false })
     }
+  })
+
+  test('moves manual ARIA tab focus without activation and leaves the tablist with Tab keys', async () => {
+    await state.page.evaluate(
+      ({ sessionKey, localKey }) => Promise.all([
+        chrome.storage.session.remove(sessionKey),
+        chrome.storage.local.remove(localKey),
+      ]),
+      { sessionKey: sessionDraftKey, localKey: libraryKey },
+    )
+    await state.page.reload()
+    await state.page.locator('.ProseMirror').waitFor()
+
+    const tabState = () => state.page.evaluate(() => ({
+      activeId: document.activeElement?.id,
+      editorSelected: document.querySelector('#tab-editor')?.getAttribute('aria-selected'),
+      librarySelected: document.querySelector('#tab-library')?.getAttribute('aria-selected'),
+      editorHidden: document.querySelector('#editor-view')?.hidden,
+      libraryHidden: document.querySelector('#library-view')?.hidden,
+      inTablist: document.activeElement?.closest('[role="tablist"]') !== null,
+    }))
+
+    await state.page.locator('#tab-editor').focus()
+    await state.page.keyboard.press('ArrowLeft')
+    assert.deepEqual(await tabState(), {
+      activeId: 'tab-library',
+      editorSelected: 'true',
+      librarySelected: 'false',
+      editorHidden: false,
+      libraryHidden: true,
+      inTablist: true,
+    })
+
+    await state.page.keyboard.press('ArrowLeft')
+    assert.equal((await tabState()).activeId, 'tab-editor')
+    await state.page.keyboard.press('ArrowRight')
+    assert.equal((await tabState()).activeId, 'tab-library')
+    await state.page.keyboard.press('ArrowRight')
+    assert.equal((await tabState()).activeId, 'tab-editor')
+
+    await state.page.locator('#tab-library').focus()
+    await state.page.keyboard.press('Home')
+    assert.equal((await tabState()).activeId, 'tab-editor')
+    await state.page.keyboard.press('End')
+    assert.equal((await tabState()).activeId, 'tab-library')
+
+    await state.page.keyboard.press('Enter')
+    assert.deepEqual(await tabState(), {
+      activeId: 'tab-library',
+      editorSelected: 'false',
+      librarySelected: 'true',
+      editorHidden: true,
+      libraryHidden: false,
+      inTablist: true,
+    })
+
+    await state.page.locator('#tab-editor').focus()
+    await state.page.keyboard.press(' ')
+    assert.deepEqual(await tabState(), {
+      activeId: 'tab-editor',
+      editorSelected: 'true',
+      librarySelected: 'false',
+      editorHidden: false,
+      libraryHidden: true,
+      inTablist: true,
+    })
+
+    await state.page.keyboard.press('Tab')
+    assert.equal((await tabState()).inTablist, false)
+    await state.page.locator('#tab-editor').focus()
+    await state.page.keyboard.press('Shift+Tab')
+    assert.equal((await tabState()).inTablist, false)
+  })
+
+  test('preserves a ProseMirror DOM selection when dirty navigation is dismissed', async () => {
+    const savedDocument = {
+      id: '44444444-4444-4444-8444-444444444444',
+      markdown: '# Selection source\nAlpha bravo charlie delta\nSecond line',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    await state.page.evaluate(
+      ({ sessionKey, localKey, document }) => Promise.all([
+        chrome.storage.session.remove(sessionKey),
+        chrome.storage.local.set({ [localKey]: [document] }),
+      ]),
+      { sessionKey: sessionDraftKey, localKey: libraryKey, document: savedDocument },
+    )
+    await state.page.reload()
+    await state.page.locator('.ProseMirror').waitFor()
+    await state.page.locator('#tab-library').click()
+    await state.page.locator('.library-card-edit').click()
+    await state.page.locator('.ProseMirror').press('End')
+    await state.page.locator('.ProseMirror').pressSequentially(' updated')
+    await state.page.waitForFunction(() => document.querySelector('#editor-mode')?.textContent?.includes('Unsaved changes'))
+
+    const selectionTuple = () => state.page.evaluate(() => {
+      const selection = window.getSelection()
+      const paragraph = [...document.querySelectorAll('.ProseMirror p')]
+        .find((element) => element.textContent?.includes('Alpha bravo charlie delta'))
+      const text = paragraph?.firstChild
+      if (!(text instanceof Text) || !selection) throw new Error('Selection fixture text is unavailable.')
+      const range = document.createRange()
+      range.setStart(text, 6)
+      range.setEnd(text, 19)
+      selection.removeAllRanges()
+      selection.addRange(range)
+      return {
+        anchorText: selection.anchorNode?.textContent,
+        anchorOffset: selection.anchorOffset,
+        focusText: selection.focusNode?.textContent,
+        focusOffset: selection.focusOffset,
+        selectedText: selection.toString(),
+      }
+    })
+    const selectionSnapshot = await selectionTuple()
+    assert.deepEqual(selectionSnapshot, {
+      anchorText: 'Alpha bravo charlie delta',
+      anchorOffset: 6,
+      focusText: 'Alpha bravo charlie delta',
+      focusOffset: 19,
+      selectedText: 'bravo charlie',
+    })
+
+    const dismissedMessage = await clickAndHandleDialog(
+      state.page,
+      state.page.locator('#tab-library'),
+      'dismiss',
+    )
+    assert.match(dismissedMessage, /discard/i)
+    assert.deepEqual(await state.page.evaluate(() => {
+      const selection = window.getSelection()
+      return {
+        anchorText: selection?.anchorNode?.textContent,
+        anchorOffset: selection?.anchorOffset,
+        focusText: selection?.focusNode?.textContent,
+        focusOffset: selection?.focusOffset,
+        selectedText: selection?.toString(),
+      }
+    }), selectionSnapshot)
+    assert.equal(await state.page.locator('#tab-editor').getAttribute('aria-selected'), 'true')
+    assert.equal(await state.page.locator('#editor-view').isHidden(), false)
+    assert.match(await state.page.locator('#editor-mode').textContent(), /Unsaved changes/)
+    assert.equal(await state.page.locator('#tab-editor').evaluate((tab) => document.activeElement === tab), true)
+  })
+
+  test('covers status replacement, saved context, and a non-content placeholder', async () => {
+    let page = state.page
+    await page.clock.install({ time: new Date('2026-08-27T00:00:00Z') })
+    await page.evaluate(
+      ({ sessionKey, localKey }) => Promise.all([
+        chrome.storage.session.remove(sessionKey),
+        chrome.storage.local.remove(localKey),
+      ]),
+      { sessionKey: sessionDraftKey, localKey: libraryKey },
+    )
+    await page.reload()
+    await page.locator('.ProseMirror').waitFor()
+
+    const initial = await page.evaluate(() => ({
+      status: document.querySelector('#status').outerHTML,
+      actionMode: document.querySelector('#editor-actions').dataset.mode,
+      tabs: [...document.querySelectorAll('[role="tab"]')].map((tab) => ({
+        id: tab.id,
+        selected: tab.getAttribute('aria-selected'),
+        tabIndex: tab.getAttribute('tabindex'),
+      })),
+      placeholder: document.querySelector('.ProseMirror').getAttribute('data-placeholder'),
+      editorText: document.querySelector('.ProseMirror').textContent,
+    }))
+    assert.match(initial.status, /aria-atomic="true"/)
+    assert.equal(initial.actionMode, 'draft')
+    assert.deepEqual(initial.tabs, [
+      { id: 'tab-editor', selected: 'true', tabIndex: '0' },
+      { id: 'tab-library', selected: 'false', tabIndex: '-1' },
+    ])
+    assert.equal(initial.placeholder, 'Start writing…')
+    assert.equal(initial.editorText, '')
+
+    await page.locator('#copy').click()
+    await page.waitForFunction(() => document.querySelector('#status')?.textContent === 'Copied')
+    assert.equal(await page.locator('#status').textContent(), 'Copied')
+    await page.clock.fastForward(2_499)
+    assert.equal(await page.locator('#status').textContent(), 'Copied')
+    await page.clock.fastForward(1)
+    assert.equal(await page.locator('#status').textContent(), '')
+
+    await page.evaluate(() => {
+      navigator.clipboard.writeText = async () => { throw new Error('forced clipboard failure') }
+      document.execCommand = () => { throw new Error('forced fallback failure') }
+    })
+    await page.locator('#copy').click()
+    await page.waitForFunction(() => document.querySelector('#status')?.textContent === 'Copy failed')
+    for (const milliseconds of [2_499, 1, 2_499]) {
+      await page.clock.fastForward(milliseconds)
+      assert.equal(await page.locator('#status').textContent(), 'Copy failed')
+    }
+    await page.clock.fastForward(1)
+    assert.equal(await page.locator('#status').textContent(), '')
+
+    await page.locator('#clear').click()
+    await page.waitForFunction(() => document.querySelector('#status')?.textContent === 'Draft cleared')
+    assert.equal(await page.locator('#status').textContent(), 'Draft cleared')
+    await page.locator('#save-draft').click()
+    await page.waitForFunction(() => document.querySelector('#status')?.textContent === 'Saved to Library')
+    assert.equal(await page.locator('#status').textContent(), 'Saved to Library')
+    await page.clock.fastForward(2_499)
+    assert.equal(await page.locator('#status').textContent(), 'Saved to Library')
+    await page.clock.fastForward(1)
+    assert.equal(await page.locator('#status').textContent(), '')
+    await page.clock.resume()
+
   })
 })
