@@ -12,7 +12,9 @@ Chrome side panel 안에서 Markdown 초안을 작성할 수 있으며, 별도 p
 - 메모장이나 ChatGPT prompt용 한 줄 간격 source를 복사하는 `Compact`
 - editor 내용을 비우는 `Clear`
 - Chrome이 종료되기 전까지 작성 중 draft 유지
-- 장기 저장, 문서 관리, 동기화, autosave UI 없음
+- 명시적으로 저장한 Markdown을 Chrome 재시작 후에도 유지하는 기기 로컬 Library
+- Library 카드의 원문 복사, 편집, 삭제
+- 계정, cloud sync, export/import 없음
 
 ## 바로 설치하기
 
@@ -58,7 +60,10 @@ npm run build
 2. Markdown을 입력합니다.
 3. 작성 화면 안에서 heading, list, inline code 등이 바로 렌더링됩니다.
 4. 목적에 맞는 복사 버튼을 누릅니다.
-5. `Clear`를 누르면 editor 내용과 현재 Chrome session draft가 비워집니다.
+5. `Save`를 누르면 현재 Markdown이 새 Library 카드로 저장됩니다. 같은 내용을 다시 저장해도 별도 카드가 생성됩니다.
+6. `Library` 탭에서 카드를 누르면 H1을 포함한 저장 원문 전체가 복사됩니다.
+7. 카드의 편집 아이콘을 누르면 같은 editor에서 문서를 수정하거나 삭제할 수 있습니다. 이때 일반 session draft는 별도로 보존됩니다.
+8. `Clear`를 누르면 일반 Editor 내용과 현재 Chrome session draft가 비워집니다.
 
 | 버튼 | 용도 | 줄바꿈 동작 |
 | --- | --- | --- |
@@ -74,9 +79,9 @@ editor에서 `Enter`는 새 문단을 만들고 `Shift+Enter`는 문단 안에 h
 | Permission | 목적 |
 | --- | --- |
 | `sidePanel` | 확장 아이콘 클릭 시 Chrome side panel을 열기 위해 사용 |
-| `storage` | Chrome이 완전히 종료되기 전까지 작성 중 draft를 `chrome.storage.session`에 보관하기 위해 사용 |
+| `storage` | 일반 draft는 `chrome.storage.session`에, 명시적으로 저장한 Library 문서는 `chrome.storage.local`에 보관하기 위해 사용 |
 
-`storage` permission은 장기 저장을 위한 `chrome.storage.local` 또는 계정 동기화를 위한 `chrome.storage.sync`에 사용하지 않습니다. 이 프로젝트는 session 저장소인 `chrome.storage.session`만 사용합니다.
+`chrome.storage.local`의 Library는 같은 기기와 Chrome profile 안에서만 유지됩니다. 계정 동기화를 위한 `chrome.storage.sync`와 추가 용량을 위한 `unlimitedStorage`는 사용하지 않습니다.
 
 ## 보안 검토
 
@@ -86,18 +91,21 @@ editor에서 `Enter`는 새 문단을 만들고 `Shift+Enter`는 문단 안에 h
 - `content_scripts` 없음
 - `tabs`, `scripting`, `cookies` 권한 없음
 - `clipboardRead` 권한 없음
-- `storage.local`, `storage.sync`, `unlimitedStorage` 사용 없음
+- `storage.sync`, `unlimitedStorage` 사용 없음
 - 외부 CDN 또는 원격 script 로딩 없음
 - custom `content_security_policy` 없음
 - 원격 서버 전송 기능 없음
 
-SideMarkDown은 사용자가 side panel에 입력한 Markdown draft를 extension 내부에서만 다룹니다. `Markdown`과 `Compact`는 사용자가 버튼을 누른 경우에만 기존 `text/plain` clipboard write 경로로 현재 source를 복사합니다.
+SideMarkDown은 사용자가 side panel에 입력하거나 Library에 저장한 Markdown을 extension 내부에서만 다룹니다. `Markdown`, `Compact`, Library 카드 복사는 사용자가 직접 누른 경우에만 `text/plain` clipboard write 경로로 원문을 복사합니다.
 
 ## 저장 정책
 
-SideMarkDown은 영구 저장 기능을 제공하지 않습니다.
+일반 Editor에서 작성 중인 draft와 사용자가 명시적으로 저장한 Library 문서는 서로 다른 수명으로 관리됩니다.
 
-작성 중 draft는 Chrome session 동안만 유지됩니다. Chrome 재시작, extension reload, extension update 이후에는 session draft가 사라질 수 있습니다. 이 동작은 문서 저장 기능이 아니라 side panel을 닫았다 다시 열 때 작성 중 내용을 임시로 유지하기 위한 최소 기능입니다.
+- 일반 draft는 `chrome.storage.session`에 저장되어 side panel을 닫았다 다시 여는 동안 유지되지만, Chrome 재시작, extension reload 또는 update 뒤에는 사라질 수 있습니다.
+- `Save`로 만든 Library 문서는 `chrome.storage.local`에 저장되어 Chrome을 완전히 종료하고 다시 실행해도 같은 기기와 Chrome profile에서 유지됩니다.
+- 카드 제목과 미리보기는 저장 원문에서 파생되며, 카드 클릭 시에는 H1을 포함한 원문 전체가 복사됩니다.
+- extension 제거 후 복구, 다른 기기나 profile로의 이전, backup/restore, cloud sync는 지원하지 않습니다.
 
 ## 기술 구성
 
@@ -106,6 +114,7 @@ SideMarkDown은 영구 저장 기능을 제공하지 않습니다.
 - Vite
 - TypeScript
 - Milkdown
+- Zod
 
 ## 프로젝트 구조
 
@@ -114,11 +123,14 @@ SideMarkDown/
   public/manifest.json
   sidepanel.html
   src/background.ts
+  src/library.ts
   src/sidepanel.ts
   src/inline-code-cleanup.ts
   src/markdown-copy.ts
   src/styles.css
   tests/extension-contract.test.mjs
+  tests/library.test.mjs
+  tests/library-e2e.test.mjs
   package.json
   tsconfig.json
   vite.config.ts
@@ -135,4 +147,4 @@ npm run test:all
 npm audit --audit-level=moderate
 ```
 
-`npm test`는 빌드와 14개의 extension contract를 실행합니다. `npm run test:e2e`는 격리된 Chromium 프로필을 시작하고 `dist/`를 unpacked extension으로 로드해 실제 확장 동작을 검증합니다. 이 검증은 사용자의 일반 Chrome 프로필을 수정하지 않습니다. `npm run test:all`은 빌드, contract, 실제 extension E2E를 모두 실행하는 전체 로컬 게이트입니다. 마지막으로 `npm audit --audit-level=moderate`로 moderate 이상 보안 취약점을 확인합니다.
+`npm test`는 빌드와 20개의 extension contract 및 Library domain test를 실행합니다. `npm run test:e2e`는 격리된 Chromium 프로필을 시작하고 `dist/`를 unpacked extension으로 로드해 기존 editor 회귀와 Library 사용자 흐름 19개를 검증합니다. 여기에는 3,000자 이상 문서를 저장한 뒤 같은 프로필로 Chrome을 완전히 다시 실행하는 영속성 시나리오가 포함됩니다. 이 검증은 사용자의 일반 Chrome 프로필을 수정하지 않습니다. `npm run test:all`은 build, contract/domain test, 실제 extension E2E를 모두 실행하는 전체 로컬 게이트입니다. 마지막으로 `npm audit --audit-level=moderate`로 moderate 이상 보안 취약점을 확인합니다.
