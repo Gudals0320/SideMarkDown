@@ -7,3 +7,13 @@ export const normalizeMarkdownForCopy = (markdown: string): string =>
     .replace(/[ \t]{2,}\n/g, ' ')
     .replace(/\\_/g, '_')
     .replace(/^[ \t]+$/gm, '')
+
+export const compactMarkdownBlocksForCopy = (
+  serializedBlocks: readonly string[],
+): string =>
+  serializedBlocks
+    .map((block) => {
+      const normalized = block.replace(/\r\n?/g, '\n')
+      return normalized.endsWith('\n') ? normalized.slice(0, -1) : normalized
+    })
+    .join('\n')

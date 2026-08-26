@@ -90,6 +90,25 @@ button:disabled {
   color: color-mix(in srgb, CanvasText 72%, transparent);
 }
 
+@media (max-width: 420px) {
+  .toolbar {
+    gap: 4px;
+    padding-inline: 6px;
+  }
+
+  .toolbar-actions {
+    gap: 4px;
+  }
+
+  button {
+    padding-inline: 6px;
+  }
+
+  #status {
+    min-width: 40px;
+  }
+}
+
 .milkdown {
   min-height: 100%;
 }

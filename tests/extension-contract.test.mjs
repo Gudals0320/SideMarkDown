@@ -182,7 +182,10 @@ test('copy markdown normalizes hardbreak artifacts before clipboard write', () =
   const sidepanel = readText('src', 'sidepanel.ts')
   const copyNormalizer = readText('src', 'markdown-copy.ts')
 
-  assert.match(sidepanel, /import \{ normalizeMarkdownForCopy \} from '\.\/markdown-copy'/)
+  assert.match(
+    sidepanel,
+    /import\s*\{[^}]*normalizeMarkdownForCopy[^}]*\}\s*from '\.\/markdown-copy'/,
+  )
   assert.match(sidepanel, /normalizeMarkdownForCopy/)
   assert.match(copyNormalizer, /<br\\s\*\\\/\?>/)
   assert.match(copyNormalizer, /\[ \\t\]\{2,\}\\n/)
@@ -229,6 +232,58 @@ test('copy markdown removes visible Milkdown serialization artifacts for prompt 
   ].join('\n')
 
   assert.equal(normalizeMarkdownForCopy(milkdownSerialized), expectedPromptText)
+})
+
+test('compact copy joins top-level blocks without changing block internals', async () => {
+  const { compactMarkdownBlocksForCopy } = await importTypeScriptModule(
+    'src',
+    'markdown-copy.ts',
+  )
+  const issueFixture = [
+    '# Test\r\n',
+    '## H2\r\n',
+    '### H3\r\n',
+    '테스트입니다.\r\n',
+    '테스트입니다.\r\n',
+  ]
+  const structuralFixture = [
+    '- first\n\n  continuation\n',
+    '> quote\n>\n> ```text\n> alpha\n>\n> beta\n> ```\n',
+    '```text\nouter\n\n```-like\n```\n',
+  ]
+
+  assert.equal(
+    compactMarkdownBlocksForCopy(issueFixture),
+    '# Test\n## H2\n### H3\n테스트입니다.\n테스트입니다.',
+  )
+  assert.equal(
+    compactMarkdownBlocksForCopy(structuralFixture),
+    [
+      '- first\n\n  continuation',
+      '> quote\n>\n> ```text\n> alpha\n>\n> beta\n> ```',
+      '```text\nouter\n\n```-like\n```',
+    ].join('\n'),
+  )
+  assert.equal(compactMarkdownBlocksForCopy([]), '')
+})
+
+test('side panel exposes separate canonical and compact copy actions', () => {
+  const html = readText('sidepanel.html')
+  const sidepanel = readText('src', 'sidepanel.ts')
+  const css = readText('src', 'styles.css')
+
+  assert.match(
+    html,
+    /<button\s+id="copy"[^>]*aria-label="Copy canonical Markdown"[^>]*title="Copy canonical Markdown"[^>]*>\s*Markdown\s*<\/button>/,
+  )
+  assert.match(
+    html,
+    /<button\s+id="copy-compact"[^>]*aria-label="Copy compact Markdown"[^>]*title="Copy compact Markdown"[^>]*>\s*Compact\s*<\/button>/,
+  )
+  assert.match(sidepanel, /document\.querySelector<HTMLButtonElement>\('#copy-compact'\)/)
+  assert.match(sidepanel, /compactMarkdownBlocksForCopy/)
+  assert.match(sidepanel, /editorViewCtx/)
+  assert.match(css, /@media\s*\(max-width:\s*420px\)/)
 })
 
 test('built extension artifacts are load-unpacked compatible and local-only', () => {
