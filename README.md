@@ -21,7 +21,7 @@ Chrome side panel 안에서 Markdown 초안을 작성할 수 있으며, 별도 p
 빌드 없이 사용하려면 GitHub Release에서 배포용 zip 파일을 내려받습니다.
 
 1. [Releases](https://github.com/Gudals0320/SideMarkDown/releases/latest) 페이지를 엽니다.
-2. `SideMarkDown-0.1.0.zip`을 다운로드합니다.
+2. `SideMarkDown-0.2.0.zip`을 다운로드합니다.
 3. zip 파일을 압축 해제합니다.
 4. Chrome에서 `chrome://extensions`를 엽니다.
 5. 우측 상단의 `Developer mode`를 켭니다.
