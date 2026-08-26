@@ -35,7 +35,7 @@ const structuralMarkdown = [
 ].join('\n')
 const expectedInlineCodeColors = {
   light: { foreground: 'rgb(46, 52, 64)', background: 'rgb(229, 233, 240)' },
-  dark: { foreground: 'rgb(236, 239, 244)', background: 'rgb(59, 66, 82)' },
+  dark: { foreground: 'rgb(236, 239, 244)', background: 'rgb(46, 52, 64)' },
 }
 const state = { context: undefined, page: undefined, profile: '', errors: [], manual: {}, worker: undefined }
 
@@ -188,9 +188,20 @@ describe('unpacked SideMarkDown extension', { concurrency: false }, () => {
         throw new Error('Inline code has no rendered background.')
       })
       const ratio = contrastRatio(colors.foreground, colors.background)
-      state.manual[`${colorScheme}InlineCode`] = { ...colors, ratio }
+      const editorBackground = await state.page.evaluate(
+        () => getComputedStyle(document.documentElement).backgroundColor,
+      )
+      state.manual[`${colorScheme}InlineCode`] = { ...colors, editorBackground, ratio }
       assert.deepEqual(colors, expectedInlineCodeColors[colorScheme])
       assert.ok(ratio >= 4.5, `${colorScheme} inline-code contrast is below 4.5:1`)
+      if (colorScheme === 'dark') {
+        assert.notEqual(
+          colors.background,
+          editorBackground,
+          'dark inline-code background must differ from the editor background',
+        )
+      }
+      await screenshot(state.page, `manual-inline-code-${colorScheme}-375x900.png`)
     }
     await state.page.emulateMedia({ colorScheme: 'light' })
   })
