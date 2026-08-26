@@ -12,6 +12,8 @@ const draftKey = 'miniMdSessionDraft'
 const sourceMarkdown = '# 한국어 제목\n\n- 목록 항목과 `inline-code`\n\n긴토큰_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_한국어'
 const issueMarkdown = '# Test\n\n## H2\n\n### H3\n\n테스트입니다.\n\n테스트입니다.\n'
 const compactIssueMarkdown = '# Test\n## H2\n### H3\n테스트입니다.\n테스트입니다.'
+const hardbreakMarkdown = 'First\\\nSecond\n'
+const compactHardbreakMarkdown = 'First\\\nSecond'
 const structuralMarkdown = [
   '# Structure',
   '',
@@ -335,6 +337,116 @@ describe('unpacked SideMarkDown extension', { concurrency: false }, () => {
       assert.equal(await page.locator('.ProseMirror > blockquote pre').count(), 1)
       assert.equal(await page.locator('.ProseMirror > pre').count(), 1)
       assert.match(await page.locator('.ProseMirror > pre').textContent(), /outer\n\n```-like/)
+    } finally {
+      await page.evaluate(
+        ({ key, markdown }) => chrome.storage.session.set({ [key]: markdown }),
+        { key: draftKey, markdown: sourceMarkdown },
+      )
+      await page.reload()
+      await page.locator('.ProseMirror code').waitFor()
+    }
+  })
+
+  test('keeps structural containers separate from following paragraphs in compact copy', async () => {
+    const page = state.page
+    const cases = [
+      {
+        markdown: '> quoted paragraph\n\nOutside paragraph',
+        expectedTags: ['BLOCKQUOTE', 'P'],
+      },
+      {
+        markdown: '- list item\n\nOutside paragraph',
+        expectedTags: ['UL', 'P'],
+      },
+    ]
+
+    try {
+      for (const fixture of cases) {
+        await page.evaluate(
+          ({ key, markdown }) => chrome.storage.session.set({ [key]: markdown }),
+          { key: draftKey, markdown: fixture.markdown },
+        )
+        await page.reload()
+        assert.deepEqual(
+          await page.locator('.ProseMirror > *').evaluateAll((nodes) =>
+            nodes.map((node) => node.tagName),
+          ),
+          fixture.expectedTags,
+        )
+        await page.locator('#copy-compact').click()
+        const compact = (
+          await page.evaluate(() => navigator.clipboard.readText())
+        ).replace(/\r\n?/g, '\n')
+        assert.match(compact, /\n\nOutside paragraph$/)
+        await page.evaluate(
+          ({ key, markdown }) => chrome.storage.session.set({ [key]: markdown }),
+          { key: draftKey, markdown: compact },
+        )
+        await page.reload()
+        assert.deepEqual(
+          await page.locator('.ProseMirror > *').evaluateAll((nodes) =>
+            nodes.map((node) => node.tagName),
+          ),
+          fixture.expectedTags,
+        )
+      }
+    } finally {
+      await page.evaluate(
+        ({ key, markdown }) => chrome.storage.session.set({ [key]: markdown }),
+        { key: draftKey, markdown: sourceMarkdown },
+      )
+      await page.reload()
+      await page.locator('.ProseMirror code').waitFor()
+    }
+  })
+
+  test('preserves Shift+Enter hard breaks in canonical and compact clipboard paths', async () => {
+    const page = state.page
+
+    try {
+      const cleared = waitForDraft(page, '')
+      await page.locator('#clear').click()
+      await cleared
+      const expectedDraft = waitForDraft(page, hardbreakMarkdown)
+      const editor = page.locator('.ProseMirror')
+      await editor.focus()
+      await editor.pressSequentially('First')
+      await editor.press('Shift+Enter')
+      await editor.pressSequentially('Second')
+      await expectedDraft
+      assert.deepEqual(
+        await editor.locator(':scope > *').evaluateAll((nodes) =>
+          nodes.map((node) => node.tagName),
+        ),
+        ['P'],
+      )
+      assert.equal(await editor.locator('[data-type="hardbreak"]').count(), 1)
+
+      await page.locator('#copy').click()
+      assert.equal(
+        (await page.evaluate(() => navigator.clipboard.readText())).replace(/\r\n?/g, '\n'),
+        hardbreakMarkdown,
+      )
+      await editor.focus()
+      await editor.press('Control+A')
+      await editor.press('Control+C')
+      assert.equal(
+        (await page.evaluate(() => navigator.clipboard.readText())).replace(/\r\n?/g, '\n'),
+        hardbreakMarkdown,
+      )
+      await page.locator('#copy-compact').click()
+      const compact = (
+        await page.evaluate(() => navigator.clipboard.readText())
+      ).replace(/\r\n?/g, '\n')
+      assert.equal(compact, compactHardbreakMarkdown)
+
+      await page.evaluate(
+        ({ key, markdown }) => chrome.storage.session.set({ [key]: markdown }),
+        { key: draftKey, markdown: compact },
+      )
+      await page.reload()
+      assert.equal(await page.locator('.ProseMirror > p').count(), 1)
+      assert.equal(await page.locator('.ProseMirror [data-type="hardbreak"]').count(), 1)
     } finally {
       await page.evaluate(
         ({ key, markdown }) => chrome.storage.session.set({ [key]: markdown }),

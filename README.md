@@ -63,9 +63,9 @@ npm run build
 | 버튼 | 용도 | 줄바꿈 동작 |
 | --- | --- | --- |
 | `Markdown` | Typora나 다른 Markdown 문서로 이동 | 문단 사이의 빈 줄을 보존합니다. |
-| `Compact` | 메모장이나 ChatGPT prompt에 붙여넣기 | 최상위 Markdown 블록 사이를 개행 하나로 연결하고 마지막 개행을 제거합니다. |
+| `Compact` | 메모장이나 ChatGPT prompt에 붙여넣기 | 인접한 heading과 일반 문단은 개행 하나로 연결하고 마지막 개행을 제거합니다. |
 
-editor에서 `Enter`는 새 문단을 만들고 `Shift+Enter`는 문단 안에 hard break를 만듭니다. `Compact`로 복사하면 서로 인접한 일반 문단이 빈 줄 없이 연결되므로, 다시 Markdown으로 파싱할 때 하나의 문단과 soft line break로 해석될 수 있습니다. 문단 구조를 보존해야 하는 문서에는 `Markdown`을 사용하세요. List, blockquote, fenced code 내부의 빈 줄과 들여쓰기는 `Compact`에서도 유지됩니다.
+editor에서 `Enter`는 새 문단을 만들고 `Shift+Enter`는 문단 안에 hard break를 만듭니다. 두 복사 모드 모두 `Shift+Enter`의 Markdown hard-break 표기와 줄바꿈을 보존합니다. `Compact`로 복사하면 서로 인접한 일반 문단이 빈 줄 없이 연결되므로, 다시 Markdown으로 파싱할 때 하나의 문단과 soft line break로 해석될 수 있습니다. 문단 구조를 보존해야 하는 문서에는 `Markdown`을 사용하세요. List, blockquote, fenced code 내부의 빈 줄과 들여쓰기는 `Compact`에서도 유지되며, 이러한 구조 블록과 다른 최상위 블록 사이에는 구조 분리를 위한 빈 줄을 유지합니다.
 
 ## 권한
 

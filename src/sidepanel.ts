@@ -14,6 +14,7 @@ import { commonmark } from '@milkdown/kit/preset/commonmark'
 import { getMarkdown, replaceAll } from '@milkdown/kit/utils'
 import { nord } from '@milkdown/theme-nord'
 import { inlineCodeCleanupPlugin } from './inline-code-cleanup'
+import type { SerializedMarkdownBlock } from './markdown-copy'
 import {
   compactMarkdownBlocksForCopy,
   normalizeMarkdownForCopy,
@@ -190,13 +191,18 @@ compactCopyButton.addEventListener('click', async () => {
     const view = editor.ctx.get(editorViewCtx)
     const schema = editor.ctx.get(schemaCtx)
     const serialize = editor.ctx.get(serializerCtx)
-    const serializedBlocks: string[] = []
+    const serializedBlocks: SerializedMarkdownBlock[] = []
 
     view.state.doc.forEach((node) => {
       if (node.type.name === 'paragraph' && node.content.size === 0) return
 
       const blockDocument = schema.topNodeType.createAndFill(undefined, node)
-      if (blockDocument) serializedBlocks.push(serialize(blockDocument))
+      if (blockDocument) {
+        serializedBlocks.push({
+          type: node.type.name,
+          markdown: serialize(blockDocument),
+        })
+      }
     })
 
     await writeClipboard(compactMarkdownBlocksForCopy(serializedBlocks))

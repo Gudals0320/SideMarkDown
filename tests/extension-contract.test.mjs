@@ -178,7 +178,7 @@ test('inline code cleanup keeps markdown markers inside normal backtick code', a
   assert.match(inlineCodeCleanup, /removeMark\(position,\s*position \+ node\.nodeSize/)
 })
 
-test('copy markdown normalizes hardbreak artifacts before clipboard write', () => {
+test('copy markdown preserves hardbreak syntax before clipboard write', () => {
   const sidepanel = readText('src', 'sidepanel.ts')
   const copyNormalizer = readText('src', 'markdown-copy.ts')
 
@@ -188,7 +188,6 @@ test('copy markdown normalizes hardbreak artifacts before clipboard write', () =
   )
   assert.match(sidepanel, /normalizeMarkdownForCopy/)
   assert.match(copyNormalizer, /<br\\s\*\\\/\?>/)
-  assert.match(copyNormalizer, /\[ \\t\]\{2,\}\\n/)
   assert.match(copyNormalizer, /\\\\_/)
   assert.match(
     sidepanel,
@@ -197,7 +196,7 @@ test('copy markdown normalizes hardbreak artifacts before clipboard write', () =
   assert.match(sidepanel, /writeClipboard\(markdown\)/)
 })
 
-test('copy markdown removes visible Milkdown serialization artifacts for prompt paste', async () => {
+test('copy markdown removes visible artifacts without flattening hardbreaks', async () => {
   const { normalizeMarkdownForCopy } = await importTypeScriptModule(
     'src',
     'markdown-copy.ts',
@@ -217,21 +216,23 @@ test('copy markdown removes visible Milkdown serialization artifacts for prompt 
     '',
     'inline <br /> break',
   ].join('\r\n')
-  const expectedPromptText = [
+  const expectedMarkdownText = [
     '# paper_draft.md 작성 계획',
     '',
     '',
     '',
     'figure는 가능한 한 NA\\report_figures_v2 내의 것을 사용하여라.',
     '',
-    'A B',
+    'A\\',
+    'B',
     '',
-    'C D',
+    'C  ',
+    'D',
     '',
     'inline break',
   ].join('\n')
 
-  assert.equal(normalizeMarkdownForCopy(milkdownSerialized), expectedPromptText)
+  assert.equal(normalizeMarkdownForCopy(milkdownSerialized), expectedMarkdownText)
 })
 
 test('compact copy joins top-level blocks without changing block internals', async () => {
@@ -240,16 +241,19 @@ test('compact copy joins top-level blocks without changing block internals', asy
     'markdown-copy.ts',
   )
   const issueFixture = [
-    '# Test\r\n',
-    '## H2\r\n',
-    '### H3\r\n',
-    '테스트입니다.\r\n',
-    '테스트입니다.\r\n',
+    { type: 'heading', markdown: '# Test\r\n' },
+    { type: 'heading', markdown: '## H2\r\n' },
+    { type: 'heading', markdown: '### H3\r\n' },
+    { type: 'paragraph', markdown: '테스트입니다.\r\n' },
+    { type: 'paragraph', markdown: '테스트입니다.\r\n' },
   ]
   const structuralFixture = [
-    '- first\n\n  continuation\n',
-    '> quote\n>\n> ```text\n> alpha\n>\n> beta\n> ```\n',
-    '```text\nouter\n\n```-like\n```\n',
+    { type: 'bullet_list', markdown: '- first\n\n  continuation\n' },
+    {
+      type: 'blockquote',
+      markdown: '> quote\n>\n> ```text\n> alpha\n>\n> beta\n> ```\n',
+    },
+    { type: 'code_block', markdown: '```text\nouter\n\n```-like\n```\n' },
   ]
 
   assert.equal(
@@ -262,7 +266,21 @@ test('compact copy joins top-level blocks without changing block internals', asy
       '- first\n\n  continuation',
       '> quote\n>\n> ```text\n> alpha\n>\n> beta\n> ```',
       '```text\nouter\n\n```-like\n```',
-    ].join('\n'),
+    ].join('\n\n'),
+  )
+  assert.equal(
+    compactMarkdownBlocksForCopy([
+      { type: 'blockquote', markdown: '> quote\n' },
+      { type: 'paragraph', markdown: 'outside\n' },
+    ]),
+    '> quote\n\noutside',
+  )
+  assert.equal(
+    compactMarkdownBlocksForCopy([
+      { type: 'bullet_list', markdown: '* item\n' },
+      { type: 'paragraph', markdown: 'outside\n' },
+    ]),
+    '* item\n\noutside',
   )
   assert.equal(compactMarkdownBlocksForCopy([]), '')
 })
