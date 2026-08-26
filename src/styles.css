@@ -5,6 +5,10 @@
   --focus: #5e81ac;
   --inline-code-foreground: #2e3440;
   --inline-code-background: #e5e9f0;
+  --danger: #bf616a;
+  --surface: color-mix(in srgb, Canvas 94%, CanvasText 6%);
+  --surface-raised: Canvas;
+  --border: color-mix(in srgb, CanvasText 14%, transparent);
   font-family:
     ui-sans-serif,
     system-ui,
@@ -38,21 +42,52 @@ body {
   overflow: hidden;
 }
 
-.toolbar {
+.app-header {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.topbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  min-height: 44px;
-  padding: 8px 10px;
-  border-bottom: 1px solid color-mix(in srgb, CanvasText 14%, transparent);
-  background: color-mix(in srgb, Canvas 94%, CanvasText 6%);
+  min-height: 36px;
+  padding: 6px 10px 4px;
+}
+
+.tabs {
+  display: flex;
+  gap: 4px;
+  padding: 0 8px;
+}
+
+.tab {
+  flex: 1;
+  min-height: 32px;
+  border-bottom-right-radius: 0;
+  border-bottom-left-radius: 0;
+  background: transparent;
+}
+
+.tab[aria-selected="true"] {
+  border-bottom-color: var(--focus);
+  background: var(--surface-raised);
+  box-shadow: inset 0 -2px var(--focus);
 }
 
 .toolbar-actions {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
   gap: 6px;
+  min-height: 44px;
+  padding: 6px 8px;
+  border-top: 1px solid var(--border);
 }
 
 button {
@@ -71,9 +106,21 @@ button:hover:not(:disabled) {
   background: color-mix(in srgb, CanvasText 8%, Canvas);
 }
 
+button:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
 button:disabled {
   cursor: not-allowed;
   opacity: 0.55;
+}
+
+#editor-view {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
 }
 
 #editor {
@@ -90,14 +137,136 @@ button:disabled {
   color: color-mix(in srgb, CanvasText 72%, transparent);
 }
 
+.editor-mode {
+  flex: none;
+  margin: 0;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--focus) 12%, Canvas);
+  color: CanvasText;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+#library-view {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 12px;
+}
+
+.library-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(260px, 100%), 1fr));
+  gap: 10px;
+}
+
+.library-card {
+  position: relative;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-raised);
+}
+
+.library-card-copy {
+  display: block;
+  width: 100%;
+  min-height: 112px;
+  padding: 14px 42px 14px 14px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  text-align: left;
+}
+
+.library-card-copy:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--focus) 7%, Canvas);
+}
+
+.library-card-title,
+.library-card-preview {
+  overflow: hidden;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.library-card-title {
+  margin-bottom: 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.library-card-preview {
+  display: -webkit-box;
+  color: color-mix(in srgb, CanvasText 72%, transparent);
+  font-size: 13px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+}
+
+.library-card-preview:empty::before {
+  content: "Empty document";
+  font-style: italic;
+}
+
+.library-card-edit {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  min-height: 32px;
+  padding: 0;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.library-card:hover .library-card-edit,
+.library-card:focus-within .library-card-edit {
+  opacity: 1;
+}
+
+.library-card-edit svg {
+  width: 15px;
+  height: 15px;
+}
+
+.empty-state {
+  margin: 40px auto;
+  color: color-mix(in srgb, CanvasText 62%, transparent);
+  font-size: 13px;
+  text-align: center;
+}
+
+.danger-button {
+  border-color: color-mix(in srgb, var(--danger) 55%, transparent);
+  color: var(--danger);
+}
+
+[hidden] {
+  display: none !important;
+}
+
 @media (max-width: 420px) {
-  .toolbar {
-    gap: 4px;
+  .topbar {
+    padding-inline: 8px;
+  }
+
+  .tabs {
     padding-inline: 6px;
   }
 
   .toolbar-actions {
     gap: 4px;
+    padding-inline: 6px;
   }
 
   button {
@@ -109,12 +278,24 @@ button:disabled {
   }
 }
 
+@media (hover: none) {
+  .library-card-edit {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .library-card-edit {
+    transition: none;
+  }
+}
+
 .milkdown {
   min-height: 100%;
 }
 
 .ProseMirror {
-  min-height: calc(100vh - 45px);
+  min-height: 100%;
   padding: 16px;
   outline: none;
   font-size: 14px;

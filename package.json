@@ -6,15 +6,16 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
-    "test:contracts": "node --test tests/extension-contract.test.mjs",
-    "test:e2e": "node --test tests/extension-e2e.test.mjs",
+    "test:contracts": "node --test tests/extension-contract.test.mjs tests/library.test.mjs",
+    "test:e2e": "node --test --test-concurrency=1 tests/extension-e2e.test.mjs tests/library-e2e.test.mjs",
     "test": "npm run build && npm run test:contracts",
     "test:all": "npm run build && npm run test:contracts && npm run test:e2e",
     "preview": "vite preview"
   },
   "dependencies": {
     "@milkdown/kit": "^7.21.1",
-    "@milkdown/theme-nord": "^7.21.1"
+    "@milkdown/theme-nord": "^7.21.1",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/chrome": "^0.1.42",

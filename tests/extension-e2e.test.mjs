@@ -110,11 +110,18 @@ const assertInViewport = (rect, width, name) => assert.ok(
 const assertStatusPlacement = async (page) => {
   const layout = await page.evaluate(() => {
     const rect = (selector) => document.querySelector(selector).getBoundingClientRect()
-    return { insideToolbar: document.querySelector('#status').parentElement?.classList.contains('toolbar-actions'), status: rect('#status'), toolbar: rect('.toolbar'), editor: rect('#editor') }
+    return {
+      insideTopbar: document.querySelector('#status').parentElement?.classList.contains('topbar'),
+      status: rect('#status'),
+      topbar: rect('.topbar'),
+      header: rect('.app-header'),
+      editor: rect('#editor-view'),
+    }
   })
-  assert.equal(layout.insideToolbar, true, 'status must be in toolbar-actions')
-  assert.ok(layout.status.top >= layout.toolbar.top && layout.status.bottom <= layout.toolbar.bottom, 'status must remain inside toolbar')
+  assert.equal(layout.insideTopbar, true, 'status must be in the topbar')
+  assert.ok(layout.status.top >= layout.topbar.top && layout.status.bottom <= layout.topbar.bottom, 'status must remain inside the topbar')
   assert.ok(layout.status.bottom <= layout.editor.top, 'status must not overlap editor')
+  assert.ok(layout.header.bottom <= layout.editor.top, 'header must not overlap editor')
   return layout
 }
 
@@ -209,7 +216,7 @@ describe('unpacked SideMarkDown extension', { concurrency: false }, () => {
   })
 
   test('reaches the editor by Tab with a visible 2px focus outline', async () => {
-    await state.page.locator('#clear').focus()
+    await state.page.locator('#save-draft').focus()
     await state.page.keyboard.press('Tab')
     const outline = await state.page.locator('.ProseMirror').evaluate((node) => {
       const style = getComputedStyle(node)
@@ -492,29 +499,29 @@ describe('unpacked SideMarkDown extension', { concurrency: false }, () => {
     assert.equal(await page.locator('.ProseMirror').textContent(), '')
   })
 
-  test('places status inside the toolbar without covering the editor at every viewport', async () => {
+  test('places status inside the header without covering the editor at every viewport', async () => {
     const page = state.page
     for (const colorScheme of ['light', 'dark']) {
       await page.emulateMedia({ colorScheme })
       for (const width of [375, 768, 1280]) {
         await page.setViewportSize({ width, height: 900 })
         const layout = await page.evaluate(() => {
-          const toolbar = document.querySelector('.toolbar').getBoundingClientRect()
-          const editor = document.querySelector('#editor').getBoundingClientRect()
-          const controls = ['#status', '#copy', '#copy-compact', '#clear'].map((selector) => ({
+          const header = document.querySelector('.app-header').getBoundingClientRect()
+          const editor = document.querySelector('#editor-view').getBoundingClientRect()
+          const controls = ['#status', '#copy', '#copy-compact', '#clear', '#save-draft'].map((selector) => ({
             selector,
             rect: document.querySelector(selector).getBoundingClientRect(),
           }))
           return {
-            toolbar,
+            header,
             editor,
             controls,
-            toolbarFits: document.querySelector('.toolbar').scrollWidth <= document.querySelector('.toolbar').clientWidth,
+            headerFits: document.querySelector('.app-header').scrollWidth <= document.querySelector('.app-header').clientWidth,
           }
         })
-        assertInViewport(layout.toolbar, width, 'toolbar')
+        assertInViewport(layout.header, width, 'header')
         assertInViewport(layout.editor, width, 'editor')
-        assert.equal(layout.toolbarFits, true, `toolbar overflows at ${width}px in ${colorScheme} mode`)
+        assert.equal(layout.headerFits, true, `header overflows at ${width}px in ${colorScheme} mode`)
         for (const control of layout.controls) assertInViewport(control.rect, width, control.selector)
         await screenshot(page, `manual-toolbar-${colorScheme}-${width}x900.png`)
       }
