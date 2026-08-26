@@ -8,7 +8,8 @@ Chrome side panel 안에서 Markdown 초안을 작성할 수 있으며, 별도 p
 
 - Chrome side panel에서 동작하는 Markdown editor
 - Typora처럼 작성 화면 안에서 inline rendering
-- 현재 문서의 Markdown source를 복사하는 `Copy Markdown`
+- 문단 구조를 보존해 현재 source를 복사하는 `Markdown`
+- 메모장이나 ChatGPT prompt용 한 줄 간격 source를 복사하는 `Compact`
 - editor 내용을 비우는 `Clear`
 - Chrome이 종료되기 전까지 작성 중 draft 유지
 - 장기 저장, 문서 관리, 동기화, autosave UI 없음
@@ -56,8 +57,15 @@ npm run build
 1. 확장 아이콘을 클릭해 side panel을 엽니다.
 2. Markdown을 입력합니다.
 3. 작성 화면 안에서 heading, list, inline code 등이 바로 렌더링됩니다.
-4. `Copy Markdown`을 누르면 현재 문서의 Markdown source가 clipboard에 복사됩니다.
+4. 목적에 맞는 복사 버튼을 누릅니다.
 5. `Clear`를 누르면 editor 내용과 현재 Chrome session draft가 비워집니다.
+
+| 버튼 | 용도 | 줄바꿈 동작 |
+| --- | --- | --- |
+| `Markdown` | Typora나 다른 Markdown 문서로 이동 | 문단 사이의 빈 줄을 보존합니다. |
+| `Compact` | 메모장이나 ChatGPT prompt에 붙여넣기 | 인접한 heading과 일반 문단은 개행 하나로 연결하고 마지막 개행을 제거합니다. |
+
+editor에서 `Enter`는 새 문단을 만들고 `Shift+Enter`는 문단 안에 hard break를 만듭니다. 두 복사 모드 모두 `Shift+Enter`의 Markdown hard-break 표기와 줄바꿈을 보존합니다. `Compact`로 복사하면 서로 인접한 일반 문단이 빈 줄 없이 연결되므로, 다시 Markdown으로 파싱할 때 하나의 문단과 soft line break로 해석될 수 있습니다. 문단 구조를 보존해야 하는 문서에는 `Markdown`을 사용하세요. List, blockquote, fenced code 내부의 빈 줄과 들여쓰기는 `Compact`에서도 유지되며, 이러한 구조 블록과 다른 최상위 블록 사이에는 구조 분리를 위한 빈 줄을 유지합니다.
 
 ## 권한
 
@@ -83,7 +91,7 @@ npm run build
 - custom `content_security_policy` 없음
 - 원격 서버 전송 기능 없음
 
-SideMarkDown은 사용자가 side panel에 입력한 Markdown draft를 extension 내부에서만 다룹니다. `Copy Markdown`은 사용자가 버튼을 누른 경우에만 현재 Markdown source를 clipboard에 씁니다.
+SideMarkDown은 사용자가 side panel에 입력한 Markdown draft를 extension 내부에서만 다룹니다. `Markdown`과 `Compact`는 사용자가 버튼을 누른 경우에만 기존 `text/plain` clipboard write 경로로 현재 source를 복사합니다.
 
 ## 저장 정책
 
@@ -127,4 +135,4 @@ npm run test:all
 npm audit --audit-level=moderate
 ```
 
-`npm test`는 빌드와 12개의 extension contract를 실행합니다. `npm run test:e2e`는 격리된 Chromium 프로필을 시작하고 `dist/`를 unpacked extension으로 로드해 실제 확장 동작을 검증합니다. 이 검증은 사용자의 일반 Chrome 프로필을 수정하지 않습니다. `npm run test:all`은 빌드, contract, 실제 extension E2E를 모두 실행하는 전체 로컬 게이트입니다. 마지막으로 `npm audit --audit-level=moderate`로 moderate 이상 보안 취약점을 확인합니다.
+`npm test`는 빌드와 14개의 extension contract를 실행합니다. `npm run test:e2e`는 격리된 Chromium 프로필을 시작하고 `dist/`를 unpacked extension으로 로드해 실제 확장 동작을 검증합니다. 이 검증은 사용자의 일반 Chrome 프로필을 수정하지 않습니다. `npm run test:all`은 빌드, contract, 실제 extension E2E를 모두 실행하는 전체 로컬 게이트입니다. 마지막으로 `npm audit --audit-level=moderate`로 moderate 이상 보안 취약점을 확인합니다.

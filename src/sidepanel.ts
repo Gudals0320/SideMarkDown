@@ -1,6 +1,7 @@
 import {
   Editor,
   defaultValueCtx,
+  editorViewCtx,
   editorViewOptionsCtx,
   rootCtx,
   schemaCtx,
@@ -13,7 +14,11 @@ import { commonmark } from '@milkdown/kit/preset/commonmark'
 import { getMarkdown, replaceAll } from '@milkdown/kit/utils'
 import { nord } from '@milkdown/theme-nord'
 import { inlineCodeCleanupPlugin } from './inline-code-cleanup'
-import { normalizeMarkdownForCopy } from './markdown-copy'
+import type { SerializedMarkdownBlock } from './markdown-copy'
+import {
+  compactMarkdownBlocksForCopy,
+  normalizeMarkdownForCopy,
+} from './markdown-copy'
 import '@milkdown/kit/prose/view/style/prosemirror.css'
 import '@milkdown/theme-nord/style.css'
 import './styles.css'
@@ -23,10 +28,18 @@ const sessionDraftKey = 'miniMdSessionDraft'
 
 const editorRoot = document.querySelector<HTMLElement>('#editor')
 const copyButton = document.querySelector<HTMLButtonElement>('#copy')
+const compactCopyButton =
+  document.querySelector<HTMLButtonElement>('#copy-compact')
 const clearButton = document.querySelector<HTMLButtonElement>('#clear')
 const status = document.querySelector<HTMLElement>('#status')
 
-if (!editorRoot || !copyButton || !clearButton || !status) {
+if (
+  !editorRoot ||
+  !copyButton ||
+  !compactCopyButton ||
+  !clearButton ||
+  !status
+) {
   throw new Error('SideMarkDown side panel markup is incomplete.')
 }
 
@@ -37,6 +50,7 @@ let pendingSessionDraft: string | undefined
 let sessionDraftWriteInFlight = false
 
 copyButton.disabled = true
+compactCopyButton.disabled = true
 clearButton.disabled = true
 
 const setStatus = (message: string) => {
@@ -151,6 +165,7 @@ const createEditor = async () => {
     .create()
 
   copyButton.disabled = false
+  compactCopyButton.disabled = false
   clearButton.disabled = false
 }
 
@@ -162,6 +177,35 @@ copyButton.addEventListener('click', async () => {
       editor.action(getMarkdown()) ?? currentMarkdown
     )
     await writeClipboard(markdown)
+    setStatus('Copied')
+  } catch (error) {
+    console.error(error)
+    setStatus('Copy failed')
+  }
+})
+
+compactCopyButton.addEventListener('click', async () => {
+  if (!editor) return
+
+  try {
+    const view = editor.ctx.get(editorViewCtx)
+    const schema = editor.ctx.get(schemaCtx)
+    const serialize = editor.ctx.get(serializerCtx)
+    const serializedBlocks: SerializedMarkdownBlock[] = []
+
+    view.state.doc.forEach((node) => {
+      if (node.type.name === 'paragraph' && node.content.size === 0) return
+
+      const blockDocument = schema.topNodeType.createAndFill(undefined, node)
+      if (blockDocument) {
+        serializedBlocks.push({
+          type: node.type.name,
+          markdown: serialize(blockDocument),
+        })
+      }
+    })
+
+    await writeClipboard(compactMarkdownBlocksForCopy(serializedBlocks))
     setStatus('Copied')
   } catch (error) {
     console.error(error)

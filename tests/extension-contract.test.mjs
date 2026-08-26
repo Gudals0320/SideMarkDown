@@ -113,7 +113,7 @@ test('inline code declares accessible light and dark custom-property tokens', ()
   assert.match(css, /--inline-code-foreground:\s*#2e3440/)
   assert.match(css, /--inline-code-background:\s*#e5e9f0/)
   assert.match(css, /--inline-code-foreground:\s*#eceff4/)
-  assert.match(css, /--inline-code-background:\s*#3b4252/)
+  assert.match(css, /--inline-code-background:\s*#2e3440/)
   assert.equal(/#(?:7a2e00|fff1d6|ffe0b2|3a2612)\b/i.test(css), false)
   assert.match(css, /@media\s*\(prefers-color-scheme:\s*dark\)/)
 })
@@ -178,14 +178,16 @@ test('inline code cleanup keeps markdown markers inside normal backtick code', a
   assert.match(inlineCodeCleanup, /removeMark\(position,\s*position \+ node\.nodeSize/)
 })
 
-test('copy markdown normalizes hardbreak artifacts before clipboard write', () => {
+test('copy markdown preserves hardbreak syntax before clipboard write', () => {
   const sidepanel = readText('src', 'sidepanel.ts')
   const copyNormalizer = readText('src', 'markdown-copy.ts')
 
-  assert.match(sidepanel, /import \{ normalizeMarkdownForCopy \} from '\.\/markdown-copy'/)
+  assert.match(
+    sidepanel,
+    /import\s*\{[^}]*normalizeMarkdownForCopy[^}]*\}\s*from '\.\/markdown-copy'/,
+  )
   assert.match(sidepanel, /normalizeMarkdownForCopy/)
   assert.match(copyNormalizer, /<br\\s\*\\\/\?>/)
-  assert.match(copyNormalizer, /\[ \\t\]\{2,\}\\n/)
   assert.match(copyNormalizer, /\\\\_/)
   assert.match(
     sidepanel,
@@ -194,7 +196,7 @@ test('copy markdown normalizes hardbreak artifacts before clipboard write', () =
   assert.match(sidepanel, /writeClipboard\(markdown\)/)
 })
 
-test('copy markdown removes visible Milkdown serialization artifacts for prompt paste', async () => {
+test('copy markdown removes visible artifacts without flattening hardbreaks', async () => {
   const { normalizeMarkdownForCopy } = await importTypeScriptModule(
     'src',
     'markdown-copy.ts',
@@ -214,21 +216,92 @@ test('copy markdown removes visible Milkdown serialization artifacts for prompt 
     '',
     'inline <br /> break',
   ].join('\r\n')
-  const expectedPromptText = [
+  const expectedMarkdownText = [
     '# paper_draft.md 작성 계획',
     '',
     '',
     '',
     'figure는 가능한 한 NA\\report_figures_v2 내의 것을 사용하여라.',
     '',
-    'A B',
+    'A\\',
+    'B',
     '',
-    'C D',
+    'C  ',
+    'D',
     '',
     'inline break',
   ].join('\n')
 
-  assert.equal(normalizeMarkdownForCopy(milkdownSerialized), expectedPromptText)
+  assert.equal(normalizeMarkdownForCopy(milkdownSerialized), expectedMarkdownText)
+})
+
+test('compact copy joins top-level blocks without changing block internals', async () => {
+  const { compactMarkdownBlocksForCopy } = await importTypeScriptModule(
+    'src',
+    'markdown-copy.ts',
+  )
+  const issueFixture = [
+    { type: 'heading', markdown: '# Test\r\n' },
+    { type: 'heading', markdown: '## H2\r\n' },
+    { type: 'heading', markdown: '### H3\r\n' },
+    { type: 'paragraph', markdown: '테스트입니다.\r\n' },
+    { type: 'paragraph', markdown: '테스트입니다.\r\n' },
+  ]
+  const structuralFixture = [
+    { type: 'bullet_list', markdown: '- first\n\n  continuation\n' },
+    {
+      type: 'blockquote',
+      markdown: '> quote\n>\n> ```text\n> alpha\n>\n> beta\n> ```\n',
+    },
+    { type: 'code_block', markdown: '```text\nouter\n\n```-like\n```\n' },
+  ]
+
+  assert.equal(
+    compactMarkdownBlocksForCopy(issueFixture),
+    '# Test\n## H2\n### H3\n테스트입니다.\n테스트입니다.',
+  )
+  assert.equal(
+    compactMarkdownBlocksForCopy(structuralFixture),
+    [
+      '- first\n\n  continuation',
+      '> quote\n>\n> ```text\n> alpha\n>\n> beta\n> ```',
+      '```text\nouter\n\n```-like\n```',
+    ].join('\n\n'),
+  )
+  assert.equal(
+    compactMarkdownBlocksForCopy([
+      { type: 'blockquote', markdown: '> quote\n' },
+      { type: 'paragraph', markdown: 'outside\n' },
+    ]),
+    '> quote\n\noutside',
+  )
+  assert.equal(
+    compactMarkdownBlocksForCopy([
+      { type: 'bullet_list', markdown: '* item\n' },
+      { type: 'paragraph', markdown: 'outside\n' },
+    ]),
+    '* item\n\noutside',
+  )
+  assert.equal(compactMarkdownBlocksForCopy([]), '')
+})
+
+test('side panel exposes separate canonical and compact copy actions', () => {
+  const html = readText('sidepanel.html')
+  const sidepanel = readText('src', 'sidepanel.ts')
+  const css = readText('src', 'styles.css')
+
+  assert.match(
+    html,
+    /<button\s+id="copy"[^>]*aria-label="Copy canonical Markdown"[^>]*title="Copy canonical Markdown"[^>]*>\s*Markdown\s*<\/button>/,
+  )
+  assert.match(
+    html,
+    /<button\s+id="copy-compact"[^>]*aria-label="Copy compact Markdown"[^>]*title="Copy compact Markdown"[^>]*>\s*Compact\s*<\/button>/,
+  )
+  assert.match(sidepanel, /document\.querySelector<HTMLButtonElement>\('#copy-compact'\)/)
+  assert.match(sidepanel, /compactMarkdownBlocksForCopy/)
+  assert.match(sidepanel, /editorViewCtx/)
+  assert.match(css, /@media\s*\(max-width:\s*420px\)/)
 })
 
 test('built extension artifacts are load-unpacked compatible and local-only', () => {

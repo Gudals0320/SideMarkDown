@@ -10,9 +10,34 @@ const dist = path.join(root, 'dist')
 const evidence = path.join(root, '.omo', 'evidence', 'wave1')
 const draftKey = 'miniMdSessionDraft'
 const sourceMarkdown = '# 한국어 제목\n\n- 목록 항목과 `inline-code`\n\n긴토큰_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_한국어'
+const issueMarkdown = '# Test\n\n## H2\n\n### H3\n\n테스트입니다.\n\n테스트입니다.\n'
+const compactIssueMarkdown = '# Test\n## H2\n### H3\n테스트입니다.\n테스트입니다.'
+const hardbreakMarkdown = 'First\\\nSecond\n'
+const compactHardbreakMarkdown = 'First\\\nSecond'
+const structuralMarkdown = [
+  '# Structure',
+  '',
+  '- first',
+  '',
+  '  continuation',
+  '',
+  '> quote',
+  '>',
+  '> ```text',
+  '> alpha',
+  '>',
+  '> beta',
+  '> ```',
+  '',
+  '```text',
+  'outer',
+  '',
+  '```-like',
+  '```',
+].join('\n')
 const expectedInlineCodeColors = {
   light: { foreground: 'rgb(46, 52, 64)', background: 'rgb(229, 233, 240)' },
-  dark: { foreground: 'rgb(236, 239, 244)', background: 'rgb(59, 66, 82)' },
+  dark: { foreground: 'rgb(236, 239, 244)', background: 'rgb(46, 52, 64)' },
 }
 const state = { context: undefined, page: undefined, profile: '', errors: [], manual: {}, worker: undefined }
 
@@ -165,9 +190,20 @@ describe('unpacked SideMarkDown extension', { concurrency: false }, () => {
         throw new Error('Inline code has no rendered background.')
       })
       const ratio = contrastRatio(colors.foreground, colors.background)
-      state.manual[`${colorScheme}InlineCode`] = { ...colors, ratio }
+      const editorBackground = await state.page.evaluate(
+        () => getComputedStyle(document.documentElement).backgroundColor,
+      )
+      state.manual[`${colorScheme}InlineCode`] = { ...colors, editorBackground, ratio }
       assert.deepEqual(colors, expectedInlineCodeColors[colorScheme])
       assert.ok(ratio >= 4.5, `${colorScheme} inline-code contrast is below 4.5:1`)
+      if (colorScheme === 'dark') {
+        assert.notEqual(
+          colors.background,
+          editorBackground,
+          'dark inline-code background must differ from the editor background',
+        )
+      }
+      await screenshot(state.page, `manual-inline-code-${colorScheme}-375x900.png`)
     }
     await state.page.emulateMedia({ colorScheme: 'light' })
   })
@@ -188,8 +224,236 @@ describe('unpacked SideMarkDown extension', { concurrency: false }, () => {
   })
 
   test('keeps action buttons at least 32px high', async () => {
-    for (const button of ['#copy', '#clear']) {
+    for (const button of ['#copy', '#copy-compact', '#clear']) {
       assert.ok((await state.page.locator(button).boundingBox()).height >= 32, `${button} is shorter than 32px`)
+    }
+  })
+
+  test('copies canonical Markdown or compact prompt text without corrupting structural blocks', async () => {
+    const page = state.page
+
+    try {
+      const cleared = waitForDraft(page, '')
+      await page.locator('#clear').click()
+      await cleared
+      const expectedDraft = waitForDraft(page, issueMarkdown)
+      const editor = page.locator('.ProseMirror')
+      await editor.focus()
+      const lines = ['# Test', '## H2', '### H3', '테스트입니다.', '테스트입니다.']
+      for (const [index, line] of lines.entries()) {
+        await editor.pressSequentially(line)
+        if (index < lines.length - 1) await editor.press('Enter')
+      }
+      await expectedDraft
+      assert.deepEqual(
+        await editor.locator(':scope > *').evaluateAll((nodes) => nodes.map((node) => node.tagName)),
+        ['H1', 'H2', 'H3', 'P', 'P'],
+      )
+
+      await page.locator('#copy').click()
+      await page.getByRole('status').filter({ hasText: 'Copied' }).waitFor()
+      assert.equal(
+        (await page.evaluate(() => navigator.clipboard.readText())).replace(/\r\n?/g, '\n'),
+        issueMarkdown,
+      )
+
+      await editor.focus()
+      await editor.press('Control+A')
+      await editor.press('Control+C')
+      assert.equal(
+        (await page.evaluate(() => navigator.clipboard.readText())).replace(/\r\n?/g, '\n'),
+        issueMarkdown,
+      )
+
+      await page.locator('#copy-compact').click()
+      await page.getByRole('status').filter({ hasText: 'Copied' }).waitFor()
+      const compactClipboard = await page.evaluate(async () => {
+        const items = await navigator.clipboard.read()
+        return {
+          text: await navigator.clipboard.readText(),
+          types: items.flatMap((item) => item.types),
+        }
+      })
+      assert.deepEqual(compactClipboard.types, ['text/plain'])
+      assert.equal(compactClipboard.text.replace(/\r\n?/g, '\n'), compactIssueMarkdown)
+      const textarea = await page.evaluate(() => {
+        const node = document.createElement('textarea')
+        node.id = 'compact-paste-target'
+        document.body.appendChild(node)
+        node.focus()
+        return node.id
+      })
+      await page.locator(`#${textarea}`).press('Control+V')
+      assert.equal(
+        (await page.locator(`#${textarea}`).inputValue()).replace(/\r\n?/g, '\n'),
+        compactIssueMarkdown,
+      )
+      await page.locator(`#${textarea}`).evaluate((node) => node.remove())
+      await screenshot(page, 'manual-compact-copy-375x900.png')
+
+      await editor.evaluate((node) => {
+        const range = document.createRange()
+        range.selectNodeContents(node)
+        range.collapse(false)
+        const selection = window.getSelection()
+        selection?.removeAllRanges()
+        selection?.addRange(range)
+        node.focus()
+      })
+      await editor.press('Enter')
+      await page.waitForFunction(() => {
+        const lastBlock = document.querySelector('.ProseMirror')?.lastElementChild
+        return lastBlock?.tagName === 'P' && lastBlock.textContent === ''
+      })
+      await page.locator('#copy-compact').click()
+      await page.getByRole('status').filter({ hasText: 'Copied' }).waitFor()
+      assert.equal(
+        (await page.evaluate(() => navigator.clipboard.readText())).replace(/\r\n?/g, '\n'),
+        compactIssueMarkdown,
+      )
+
+      await page.evaluate(
+        ({ key, markdown }) => chrome.storage.session.set({ [key]: markdown }),
+        { key: draftKey, markdown: structuralMarkdown },
+      )
+      await page.reload()
+      await page.locator('.ProseMirror blockquote pre').waitFor()
+      await page.locator('#copy-compact').click()
+      await page.getByRole('status').filter({ hasText: 'Copied' }).waitFor()
+      const structuralClipboard = (
+        await page.evaluate(() => navigator.clipboard.readText())
+      ).replace(/\r\n?/g, '\n')
+      assert.match(structuralClipboard, /[*-] first\n\n  continuation/)
+      assert.match(structuralClipboard, /> ```text\n> alpha\n>\n> beta\n> ```/)
+      assert.match(structuralClipboard, /````text\nouter\n\n```-like\n````/)
+
+      await page.evaluate(
+        ({ key, markdown }) => chrome.storage.session.set({ [key]: markdown }),
+        { key: draftKey, markdown: structuralClipboard },
+      )
+      await page.reload()
+      assert.equal(await page.locator('.ProseMirror > ul').count(), 1)
+      assert.equal(await page.locator('.ProseMirror > blockquote').count(), 1)
+      assert.equal(await page.locator('.ProseMirror > blockquote pre').count(), 1)
+      assert.equal(await page.locator('.ProseMirror > pre').count(), 1)
+      assert.match(await page.locator('.ProseMirror > pre').textContent(), /outer\n\n```-like/)
+    } finally {
+      await page.evaluate(
+        ({ key, markdown }) => chrome.storage.session.set({ [key]: markdown }),
+        { key: draftKey, markdown: sourceMarkdown },
+      )
+      await page.reload()
+      await page.locator('.ProseMirror code').waitFor()
+    }
+  })
+
+  test('keeps structural containers separate from following paragraphs in compact copy', async () => {
+    const page = state.page
+    const cases = [
+      {
+        markdown: '> quoted paragraph\n\nOutside paragraph',
+        expectedTags: ['BLOCKQUOTE', 'P'],
+      },
+      {
+        markdown: '- list item\n\nOutside paragraph',
+        expectedTags: ['UL', 'P'],
+      },
+    ]
+
+    try {
+      for (const fixture of cases) {
+        await page.evaluate(
+          ({ key, markdown }) => chrome.storage.session.set({ [key]: markdown }),
+          { key: draftKey, markdown: fixture.markdown },
+        )
+        await page.reload()
+        assert.deepEqual(
+          await page.locator('.ProseMirror > *').evaluateAll((nodes) =>
+            nodes.map((node) => node.tagName),
+          ),
+          fixture.expectedTags,
+        )
+        await page.locator('#copy-compact').click()
+        const compact = (
+          await page.evaluate(() => navigator.clipboard.readText())
+        ).replace(/\r\n?/g, '\n')
+        assert.match(compact, /\n\nOutside paragraph$/)
+        await page.evaluate(
+          ({ key, markdown }) => chrome.storage.session.set({ [key]: markdown }),
+          { key: draftKey, markdown: compact },
+        )
+        await page.reload()
+        assert.deepEqual(
+          await page.locator('.ProseMirror > *').evaluateAll((nodes) =>
+            nodes.map((node) => node.tagName),
+          ),
+          fixture.expectedTags,
+        )
+      }
+    } finally {
+      await page.evaluate(
+        ({ key, markdown }) => chrome.storage.session.set({ [key]: markdown }),
+        { key: draftKey, markdown: sourceMarkdown },
+      )
+      await page.reload()
+      await page.locator('.ProseMirror code').waitFor()
+    }
+  })
+
+  test('preserves Shift+Enter hard breaks in canonical and compact clipboard paths', async () => {
+    const page = state.page
+
+    try {
+      const cleared = waitForDraft(page, '')
+      await page.locator('#clear').click()
+      await cleared
+      const expectedDraft = waitForDraft(page, hardbreakMarkdown)
+      const editor = page.locator('.ProseMirror')
+      await editor.focus()
+      await editor.pressSequentially('First')
+      await editor.press('Shift+Enter')
+      await editor.pressSequentially('Second')
+      await expectedDraft
+      assert.deepEqual(
+        await editor.locator(':scope > *').evaluateAll((nodes) =>
+          nodes.map((node) => node.tagName),
+        ),
+        ['P'],
+      )
+      assert.equal(await editor.locator('[data-type="hardbreak"]').count(), 1)
+
+      await page.locator('#copy').click()
+      assert.equal(
+        (await page.evaluate(() => navigator.clipboard.readText())).replace(/\r\n?/g, '\n'),
+        hardbreakMarkdown,
+      )
+      await editor.focus()
+      await editor.press('Control+A')
+      await editor.press('Control+C')
+      assert.equal(
+        (await page.evaluate(() => navigator.clipboard.readText())).replace(/\r\n?/g, '\n'),
+        hardbreakMarkdown,
+      )
+      await page.locator('#copy-compact').click()
+      const compact = (
+        await page.evaluate(() => navigator.clipboard.readText())
+      ).replace(/\r\n?/g, '\n')
+      assert.equal(compact, compactHardbreakMarkdown)
+
+      await page.evaluate(
+        ({ key, markdown }) => chrome.storage.session.set({ [key]: markdown }),
+        { key: draftKey, markdown: compact },
+      )
+      await page.reload()
+      assert.equal(await page.locator('.ProseMirror > p').count(), 1)
+      assert.equal(await page.locator('.ProseMirror [data-type="hardbreak"]').count(), 1)
+    } finally {
+      await page.evaluate(
+        ({ key, markdown }) => chrome.storage.session.set({ [key]: markdown }),
+        { key: draftKey, markdown: sourceMarkdown },
+      )
+      await page.reload()
+      await page.locator('.ProseMirror code').waitFor()
     }
   })
 
@@ -230,16 +494,32 @@ describe('unpacked SideMarkDown extension', { concurrency: false }, () => {
 
   test('places status inside the toolbar without covering the editor at every viewport', async () => {
     const page = state.page
-    for (const width of [375, 768, 1280]) {
-      await page.setViewportSize({ width, height: 900 })
-      const layout = await page.evaluate(() => {
-        const toolbar = document.querySelector('.toolbar').getBoundingClientRect()
-        const editor = document.querySelector('#editor').getBoundingClientRect()
-        return { toolbar, editor }
-      })
-      assertInViewport(layout.toolbar, width, 'toolbar')
-      assertInViewport(layout.editor, width, 'editor')
+    for (const colorScheme of ['light', 'dark']) {
+      await page.emulateMedia({ colorScheme })
+      for (const width of [375, 768, 1280]) {
+        await page.setViewportSize({ width, height: 900 })
+        const layout = await page.evaluate(() => {
+          const toolbar = document.querySelector('.toolbar').getBoundingClientRect()
+          const editor = document.querySelector('#editor').getBoundingClientRect()
+          const controls = ['#status', '#copy', '#copy-compact', '#clear'].map((selector) => ({
+            selector,
+            rect: document.querySelector(selector).getBoundingClientRect(),
+          }))
+          return {
+            toolbar,
+            editor,
+            controls,
+            toolbarFits: document.querySelector('.toolbar').scrollWidth <= document.querySelector('.toolbar').clientWidth,
+          }
+        })
+        assertInViewport(layout.toolbar, width, 'toolbar')
+        assertInViewport(layout.editor, width, 'editor')
+        assert.equal(layout.toolbarFits, true, `toolbar overflows at ${width}px in ${colorScheme} mode`)
+        for (const control of layout.controls) assertInViewport(control.rect, width, control.selector)
+        await screenshot(page, `manual-toolbar-${colorScheme}-${width}x900.png`)
+      }
     }
+    await page.emulateMedia({ colorScheme: 'light' })
     await page.setViewportSize({ width: 375, height: 900 })
   })
 

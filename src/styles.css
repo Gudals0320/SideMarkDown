@@ -21,7 +21,7 @@
     --foreground: #eceff4;
     --background: #3b4252;
     --inline-code-foreground: #eceff4;
-    --inline-code-background: #3b4252;
+    --inline-code-background: #2e3440;
   }
 }
 
@@ -88,6 +88,25 @@ button:disabled {
   font-size: 12px;
   text-align: right;
   color: color-mix(in srgb, CanvasText 72%, transparent);
+}
+
+@media (max-width: 420px) {
+  .toolbar {
+    gap: 4px;
+    padding-inline: 6px;
+  }
+
+  .toolbar-actions {
+    gap: 4px;
+  }
+
+  button {
+    padding-inline: 6px;
+  }
+
+  #status {
+    min-width: 40px;
+  }
 }
 
 .milkdown {
