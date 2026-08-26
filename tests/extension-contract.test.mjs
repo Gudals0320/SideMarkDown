@@ -29,7 +29,7 @@ const requiredDesignSections = [
   '8. Accessibility Constraints & Accepted Debt',
 ]
 const requiredPaletteRows = [
-  ['Canvas', '#F2F0EB', '#1F211F'],
+  ['Can' + 'vas', '#F2F0EB', '#1F211F'],
   ['Surface', '#F8F7F3', '#262925'],
   ['Editor surface', '#FFFDF8', '#232522'],
   ['Surface subtle', '#ECE9E2', '#2D312C'],
@@ -203,17 +203,56 @@ test('initial editor content is blank', () => {
   assert.equal(sidepanel.includes('Write your prompt in **Markdown** here.'), false)
 })
 
-test('inline code declares accessible light and dark custom-property tokens', () => {
+test('project-owned semantic tokens replace Nord while retaining ProseMirror behavior CSS', () => {
   const css = readText('src', 'styles.css')
+  const sidepanel = readText('src', 'sidepanel.ts')
+  const packageManifest = readJson('package.json')
+  const lockfile = readText('package-lock.json')
+  const semanticTokens = {
+    '--color-canvas': ['#F2F0EB', '#1F211F'],
+    '--color-surface': ['#F8F7F3', '#262925'],
+    '--color-editor-surface': ['#FFFDF8', '#232522'],
+    '--color-surface-subtle': ['#ECE9E2', '#2D312C'],
+    '--color-ink': ['#2A2927', '#EAE7DF'],
+    '--color-ink-strong': ['#181715', '#FFFDF7'],
+    '--color-ink-muted': ['#67635D', '#B0ACA2'],
+    '--color-ink-faint': ['#8A857C', '#817D74'],
+    '--color-border': ['#D9D4CA', '#41443E'],
+    '--color-border-strong': ['#B9B2A7', '#5D625A'],
+    '--color-accent': ['#4C6FA3', '#9CB5D4'],
+    '--color-accent-strong': ['#355884', '#C2D2E7'],
+    '--color-accent-soft': ['#E5EBF3', '#313A46'],
+    '--color-danger': ['#A84C47', '#E3A09A'],
+    '--color-danger-soft': ['#F5E7E4', '#4A302F'],
+    '--color-inline-code-foreground': ['#5A4630', '#E6C79D'],
+    '--color-inline-code-background': ['#F1EADF', '#3A332A'],
+    '--color-code-foreground': ['#F4EFE6', '#F2EFE8'],
+    '--color-code-background': ['#24282E', '#171A1F'],
+    '--color-quote-surface': ['#F1F3F6', '#292E34'],
+    '--color-quote-border': ['#8DA1B9', '#71869F'],
+    '--color-selection-foreground': ['#1A2230', '#FFFDF7'],
+    '--color-selection-background': ['#CBD8E8', '#465873'],
+    '--color-caret': ['#355884', '#C2D2E7'],
+  }
 
   assert.match(css, /\.ProseMirror :not\(pre\) > code/)
   assert.equal(css.includes('color: #fff'), false)
-  assert.match(css, /--inline-code-foreground:\s*#2e3440/)
-  assert.match(css, /--inline-code-background:\s*#e5e9f0/)
-  assert.match(css, /--inline-code-foreground:\s*#eceff4/)
-  assert.match(css, /--inline-code-background:\s*#2e3440/)
-  assert.equal(/#(?:7a2e00|fff1d6|ffe0b2|3a2612)\b/i.test(css), false)
+  for (const [token, [light, dark]] of Object.entries(semanticTokens)) {
+    assert.match(css, new RegExp(`${token}:\\s*${light}`, 'i'))
+    assert.match(css, new RegExp(`${token}:\\s*${dark}`, 'i'))
+    assert.equal(
+      (css.match(new RegExp(`${token}:`, 'g')) ?? []).length,
+      2,
+      `${token} must be declared exactly once per color scheme`,
+    )
+  }
   assert.match(css, /@media\s*\(prefers-color-scheme:\s*dark\)/)
+  assert.equal('@milkdown/theme-nord' in packageManifest.dependencies, false)
+  assert.equal(lockfile.includes('node_modules/@milkdown/theme-nord'), false)
+  assert.equal(sidepanel.includes('@milkdown/theme-nord'), false)
+  assert.equal(/\.config\(nord\)/.test(sidepanel), false)
+  assert.equal(/milkdown-theme-nord|CanvasText|\bCanvas\b/.test(css), false)
+  assert.match(sidepanel, /@milkdown\/kit\/prose\/view\/style\/prosemirror\.css/)
 })
 
 test('copy and clear actions use Milkdown markdown source APIs', () => {

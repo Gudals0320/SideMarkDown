@@ -14,7 +14,6 @@
   },
   "dependencies": {
     "@milkdown/kit": "^7.21.1",
-    "@milkdown/theme-nord": "^7.21.1",
     "zod": "^4.4.3"
   },
   "devDependencies": {

@@ -1,14 +1,29 @@
 :root {
   color-scheme: light dark;
-  --foreground: #2e3440;
-  --background: #e5e9f0;
-  --focus: #5e81ac;
-  --inline-code-foreground: #2e3440;
-  --inline-code-background: #e5e9f0;
-  --danger: #bf616a;
-  --surface: color-mix(in srgb, Canvas 94%, CanvasText 6%);
-  --surface-raised: Canvas;
-  --border: color-mix(in srgb, CanvasText 14%, transparent);
+  --color-canvas: #F2F0EB;
+  --color-surface: #F8F7F3;
+  --color-editor-surface: #FFFDF8;
+  --color-surface-subtle: #ECE9E2;
+  --color-ink: #2A2927;
+  --color-ink-strong: #181715;
+  --color-ink-muted: #67635D;
+  --color-ink-faint: #8A857C;
+  --color-border: #D9D4CA;
+  --color-border-strong: #B9B2A7;
+  --color-accent: #4C6FA3;
+  --color-accent-strong: #355884;
+  --color-accent-soft: #E5EBF3;
+  --color-danger: #A84C47;
+  --color-danger-soft: #F5E7E4;
+  --color-inline-code-foreground: #5A4630;
+  --color-inline-code-background: #F1EADF;
+  --color-code-foreground: #F4EFE6;
+  --color-code-background: #24282E;
+  --color-quote-surface: #F1F3F6;
+  --color-quote-border: #8DA1B9;
+  --color-selection-foreground: #1A2230;
+  --color-selection-background: #CBD8E8;
+  --color-caret: #355884;
   font-family:
     ui-sans-serif,
     system-ui,
@@ -16,16 +31,36 @@
     BlinkMacSystemFont,
     "Segoe UI",
     sans-serif;
-  background: var(--background);
-  color: var(--foreground);
+  background: var(--color-canvas);
+  color: var(--color-ink);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --foreground: #eceff4;
-    --background: #3b4252;
-    --inline-code-foreground: #eceff4;
-    --inline-code-background: #2e3440;
+    --color-canvas: #1F211F;
+    --color-surface: #262925;
+    --color-editor-surface: #232522;
+    --color-surface-subtle: #2D312C;
+    --color-ink: #EAE7DF;
+    --color-ink-strong: #FFFDF7;
+    --color-ink-muted: #B0ACA2;
+    --color-ink-faint: #817D74;
+    --color-border: #41443E;
+    --color-border-strong: #5D625A;
+    --color-accent: #9CB5D4;
+    --color-accent-strong: #C2D2E7;
+    --color-accent-soft: #313A46;
+    --color-danger: #E3A09A;
+    --color-danger-soft: #4A302F;
+    --color-inline-code-foreground: #E6C79D;
+    --color-inline-code-background: #3A332A;
+    --color-code-foreground: #F2EFE8;
+    --color-code-background: #171A1F;
+    --color-quote-surface: #292E34;
+    --color-quote-border: #71869F;
+    --color-selection-foreground: #FFFDF7;
+    --color-selection-background: #465873;
+    --color-caret: #C2D2E7;
   }
 }
 
@@ -40,14 +75,16 @@ body {
   height: 100vh;
   margin: 0;
   overflow: hidden;
+  background: var(--color-canvas);
+  color: var(--color-ink);
 }
 
 .app-header {
   display: flex;
   flex: none;
   flex-direction: column;
-  border-bottom: 1px solid var(--border);
-  background: var(--surface);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface);
 }
 
 .topbar {
@@ -74,9 +111,9 @@ body {
 }
 
 .tab[aria-selected="true"] {
-  border-bottom-color: var(--focus);
-  background: var(--surface-raised);
-  box-shadow: inset 0 -2px var(--focus);
+  border-bottom-color: var(--color-accent);
+  background: var(--color-editor-surface);
+  box-shadow: inset 0 -2px var(--color-accent);
 }
 
 .toolbar-actions {
@@ -87,27 +124,27 @@ body {
   gap: 6px;
   min-height: 44px;
   padding: 6px 8px;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--color-border);
 }
 
 button {
-  border: 1px solid color-mix(in srgb, CanvasText 18%, transparent);
+  border: 1px solid var(--color-border-strong);
   border-radius: 8px;
   min-height: 32px;
   padding: 5px 8px;
-  background: Canvas;
-  color: CanvasText;
+  background: var(--color-editor-surface);
+  color: var(--color-ink);
   font: inherit;
   font-size: 12px;
   cursor: pointer;
 }
 
 button:hover:not(:disabled) {
-  background: color-mix(in srgb, CanvasText 8%, Canvas);
+  background: var(--color-surface-subtle);
 }
 
 button:focus-visible {
-  outline: 2px solid var(--focus);
+  outline: 2px solid var(--color-accent-strong);
   outline-offset: 1px;
 }
 
@@ -134,16 +171,16 @@ button:disabled {
   margin: 0;
   font-size: 12px;
   text-align: right;
-  color: color-mix(in srgb, CanvasText 72%, transparent);
+  color: var(--color-ink-muted);
 }
 
 .editor-mode {
   flex: none;
   margin: 0;
   padding: 6px 12px;
-  border-bottom: 1px solid var(--border);
-  background: color-mix(in srgb, var(--focus) 12%, Canvas);
-  color: CanvasText;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-accent-soft);
+  color: var(--color-ink-strong);
   font-size: 12px;
   font-weight: 600;
 }
@@ -165,9 +202,9 @@ button:disabled {
   position: relative;
   min-width: 0;
   overflow: hidden;
-  border: 1px solid var(--border);
+  border: 1px solid var(--color-border);
   border-radius: 10px;
-  background: var(--surface-raised);
+  background: var(--color-editor-surface);
 }
 
 .library-card-copy {
@@ -182,7 +219,7 @@ button:disabled {
 }
 
 .library-card-copy:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--focus) 7%, Canvas);
+  background: var(--color-accent-soft);
 }
 
 .library-card-title,
@@ -202,7 +239,7 @@ button:disabled {
 
 .library-card-preview {
   display: -webkit-box;
-  color: color-mix(in srgb, CanvasText 72%, transparent);
+  color: var(--color-ink-muted);
   font-size: 13px;
   line-height: 1.45;
   white-space: pre-wrap;
@@ -241,14 +278,23 @@ button:disabled {
 
 .empty-state {
   margin: 40px auto;
-  color: color-mix(in srgb, CanvasText 62%, transparent);
+  color: var(--color-ink-muted);
   font-size: 13px;
   text-align: center;
 }
 
 .danger-button {
-  border-color: color-mix(in srgb, var(--danger) 55%, transparent);
-  color: var(--danger);
+  border-color: var(--color-danger);
+  color: var(--color-danger);
+}
+
+a {
+  color: var(--color-accent-strong);
+}
+
+::selection {
+  background: var(--color-selection-background);
+  color: var(--color-selection-foreground);
 }
 
 [hidden] {
@@ -301,10 +347,13 @@ button:disabled {
   font-size: 14px;
   line-height: 1.65;
   word-break: break-word;
+  background: var(--color-editor-surface);
+  color: var(--color-ink);
+  caret-color: var(--color-caret);
 }
 
 .ProseMirror:focus-visible {
-  outline: 2px solid var(--focus);
+  outline: 2px solid var(--color-accent-strong);
   outline-offset: -2px;
 }
 
@@ -318,6 +367,9 @@ button:disabled {
   overflow-x: auto;
   padding: 12px;
   border-radius: 10px;
+  border: 1px solid var(--color-border-strong);
+  background: var(--color-code-background);
+  color: var(--color-code-foreground);
 }
 
 .ProseMirror code {
@@ -325,6 +377,6 @@ button:disabled {
 }
 
 .ProseMirror :not(pre) > code {
-  color: var(--inline-code-foreground);
-  background: var(--inline-code-background);
+  color: var(--color-inline-code-foreground);
+  background: var(--color-inline-code-background);
 }

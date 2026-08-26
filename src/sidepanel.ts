@@ -12,7 +12,6 @@ import { history } from '@milkdown/kit/plugin/history'
 import { listener, listenerCtx } from '@milkdown/kit/plugin/listener'
 import { commonmark } from '@milkdown/kit/preset/commonmark'
 import { getMarkdown, replaceAll } from '@milkdown/kit/utils'
-import { nord } from '@milkdown/theme-nord'
 import { inlineCodeCleanupPlugin } from './inline-code-cleanup'
 import {
   createLibraryDocument,
@@ -30,7 +29,6 @@ import {
   normalizeMarkdownForCopy,
 } from './markdown-copy'
 import '@milkdown/kit/prose/view/style/prosemirror.css'
-import '@milkdown/theme-nord/style.css'
 import './styles.css'
 
 const initialMarkdown = ''
@@ -382,7 +380,6 @@ const createEditor = async () => {
   libraryDocuments = loadedLibraryDocuments
 
   editor = await Editor.make()
-    .config(nord)
     .config((ctx) => {
       ctx.set(rootCtx, editorRoot)
       ctx.set(defaultValueCtx, loadedSessionDraft)

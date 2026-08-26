@@ -35,9 +35,23 @@ const structuralMarkdown = [
   '```-like',
   '```',
 ].join('\n')
-const expectedInlineCodeColors = {
-  light: { foreground: 'rgb(46, 52, 64)', background: 'rgb(229, 233, 240)' },
-  dark: { foreground: 'rgb(236, 239, 244)', background: 'rgb(46, 52, 64)' },
+const expectedSemanticColors = {
+  light: {
+    canvas: 'rgb(242, 240, 235)',
+    surface: 'rgb(248, 247, 243)',
+    editor: 'rgb(255, 253, 248)',
+    ink: 'rgb(42, 41, 39)',
+    accent: 'rgb(76, 111, 163)',
+    inlineCode: { foreground: 'rgb(90, 70, 48)', background: 'rgb(241, 234, 223)' },
+  },
+  dark: {
+    canvas: 'rgb(31, 33, 31)',
+    surface: 'rgb(38, 41, 37)',
+    editor: 'rgb(35, 37, 34)',
+    ink: 'rgb(234, 231, 223)',
+    accent: 'rgb(156, 181, 212)',
+    inlineCode: { foreground: 'rgb(230, 199, 157)', background: 'rgb(58, 51, 42)' },
+  },
 }
 const state = { context: undefined, page: undefined, profile: '', errors: [], manual: {}, worker: undefined }
 
@@ -181,7 +195,7 @@ describe('unpacked SideMarkDown extension', { concurrency: false }, () => {
     await screenshot(state.page, 'manual-korean-375x900.png')
   })
 
-  test('uses exact Nord inline-code colors with contrast at least 4.5 in light and dark', async () => {
+  test('uses exact semantic colors without Nord runtime classes in light and dark', async () => {
     const inlineCode = state.page.locator('.ProseMirror :not(pre) > code').first()
     for (const colorScheme of ['light', 'dark']) {
       await state.page.emulateMedia({ colorScheme })
@@ -197,16 +211,32 @@ describe('unpacked SideMarkDown extension', { concurrency: false }, () => {
         throw new Error('Inline code has no rendered background.')
       })
       const ratio = contrastRatio(colors.foreground, colors.background)
-      const editorBackground = await state.page.evaluate(
-        () => getComputedStyle(document.documentElement).backgroundColor,
-      )
-      state.manual[`${colorScheme}InlineCode`] = { ...colors, editorBackground, ratio }
-      assert.deepEqual(colors, expectedInlineCodeColors[colorScheme])
+      const surface = await state.page.evaluate(() => {
+        const selectedTab = document.querySelector('.tab[aria-selected="true"]')
+        const nordRuntimeClass = ['milkdown', 'theme', 'nord'].join('-')
+        return {
+          canvas: getComputedStyle(document.documentElement).backgroundColor,
+          surface: getComputedStyle(document.querySelector('.app-header')).backgroundColor,
+          editor: getComputedStyle(document.querySelector('.ProseMirror')).backgroundColor,
+          ink: getComputedStyle(document.querySelector('.ProseMirror')).color,
+          accent: selectedTab ? getComputedStyle(selectedTab).borderBottomColor : '',
+          hasNordRuntimeClass: Boolean(document.querySelector(`[class*="${nordRuntimeClass}"]`)),
+        }
+      })
+      const expected = expectedSemanticColors[colorScheme]
+      state.manual[`${colorScheme}SemanticTokens`] = { ...surface, inlineCode: colors, ratio }
+      assert.deepEqual(colors, expected.inlineCode)
+      assert.equal(surface.canvas, expected.canvas)
+      assert.equal(surface.surface, expected.surface)
+      assert.equal(surface.editor, expected.editor)
+      assert.equal(surface.ink, expected.ink)
+      assert.equal(surface.accent, expected.accent)
+      assert.equal(surface.hasNordRuntimeClass, false)
       assert.ok(ratio >= 4.5, `${colorScheme} inline-code contrast is below 4.5:1`)
       if (colorScheme === 'dark') {
         assert.notEqual(
           colors.background,
-          editorBackground,
+          surface.editor,
           'dark inline-code background must differ from the editor background',
         )
       }
