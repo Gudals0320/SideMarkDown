@@ -95,6 +95,9 @@ type EditorMode =
     }
 
 type PanelView = 'editor' | 'library'
+type LibraryMutation = (
+  documents: readonly LibraryDocument[],
+) => readonly LibraryDocument[]
 
 let editor: Editor | undefined
 let currentMarkdown = initialMarkdown
@@ -106,6 +109,7 @@ let statusTimer: number | undefined
 let pendingSessionDraft: string | undefined
 let sessionDraftWriteInFlight = false
 let suppressEditorUpdate = false
+let libraryMutationQueue: Promise<void> = Promise.resolve()
 
 for (const button of [
   copyButton,
@@ -188,11 +192,19 @@ const persistSessionDraft = (markdown: string) => {
   void flushSessionDraft()
 }
 
-const persistLibraryDocuments = async (
-  documents: readonly LibraryDocument[],
-) => {
-  await chrome.storage.local.set({ [libraryKey]: documents })
-  libraryDocuments = documents
+const mutateLibraryDocuments = (
+  mutation: LibraryMutation,
+): Promise<void> => {
+  const operation = libraryMutationQueue.then(async () => {
+    const documents = mutation(libraryDocuments)
+    await chrome.storage.local.set({ [libraryKey]: documents })
+    libraryDocuments = documents
+  })
+  libraryMutationQueue = operation.then(
+    () => undefined,
+    () => undefined,
+  )
+  return operation
 }
 
 const writeClipboard = async (text: string) => {
@@ -511,17 +523,19 @@ saveDraftButton.addEventListener('click', async () => {
   if (!editor || editorMode.kind !== 'draft') return
 
   try {
-    const timestamp = Math.max(
-      Date.now(),
-      (libraryDocuments[0]?.updatedAt ?? -1) + 1,
+    const id = libraryDocumentIdSchema.parse(crypto.randomUUID())
+    const markdown = currentMarkdown
+    await mutateLibraryDocuments((documents) =>
+      createLibraryDocument({
+        documents,
+        id,
+        markdown,
+        timestamp: Math.max(
+          Date.now(),
+          (documents[0]?.updatedAt ?? -1) + 1,
+        ),
+      }),
     )
-    const documents = createLibraryDocument({
-      documents: libraryDocuments,
-      id: libraryDocumentIdSchema.parse(crypto.randomUUID()),
-      markdown: currentMarkdown,
-      timestamp,
-    })
-    await persistLibraryDocuments(documents)
     setStatus('Saved')
   } catch (error) {
     // no-excuse-ok: catch -- click handler reports local storage failure.
@@ -539,17 +553,18 @@ saveDocumentButton.addEventListener('click', async () => {
       return
     case 'saved-document':
       try {
-        const timestamp = Math.max(
-          Date.now(),
-          (libraryDocuments[0]?.updatedAt ?? -1) + 1,
+        const markdown = editor.action(getMarkdown()) ?? currentMarkdown
+        await mutateLibraryDocuments((documents) =>
+          updateLibraryDocument({
+            documents,
+            id: activeMode.documentId,
+            markdown,
+            timestamp: Math.max(
+              Date.now(),
+              (documents[0]?.updatedAt ?? -1) + 1,
+            ),
+          }),
         )
-        const documents = updateLibraryDocument({
-          documents: libraryDocuments,
-          id: activeMode.documentId,
-          markdown: editor.action(getMarkdown()) ?? currentMarkdown,
-          timestamp,
-        })
-        await persistLibraryDocuments(documents)
         finishSavedDocumentEditing()
         setStatus('Saved')
       } catch (error) {
@@ -573,11 +588,10 @@ deleteDocumentButton.addEventListener('click', async () => {
   if (!window.confirm('Delete this saved document permanently?')) return
 
   try {
-    const documents = deleteLibraryDocument(
-      libraryDocuments,
-      editorMode.documentId,
+    const documentId = editorMode.documentId
+    await mutateLibraryDocuments((documents) =>
+      deleteLibraryDocument(documents, documentId),
     )
-    await persistLibraryDocuments(documents)
     finishSavedDocumentEditing()
     setStatus('Deleted')
   } catch (error) {

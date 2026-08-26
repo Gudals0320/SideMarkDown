@@ -173,16 +173,55 @@ describe('persistent prompt Library', { concurrency: false }, () => {
 
   test('creates duplicate cards without leaving or clearing the draft Editor', async () => {
     // Given
-    const firstSave = waitForLibraryLength(state.page, 1)
+    await state.page.evaluate((key) => {
+      const originalSet = chrome.storage.local.set.bind(chrome.storage.local)
+      let releaseFirstWrite
+      const payloadLengths = []
+      chrome.storage.local.set = async (items) => {
+        payloadLengths.push(Array.isArray(items[key]) ? items[key].length : -1)
+        if (payloadLengths.length === 1) {
+          await new Promise((resolve) => {
+            releaseFirstWrite = resolve
+          })
+        }
+        return originalSet(items)
+      }
+      window.__libraryWriteProbe = {
+        payloadLengths: () => [...payloadLengths],
+        releaseFirstWrite: () => releaseFirstWrite?.(),
+        restore: () => {
+          chrome.storage.local.set = originalSet
+          delete window.__libraryWriteProbe
+        },
+      }
+    }, libraryKey)
 
     // When
-    await state.page.locator('#save-draft').click()
-    await firstSave
-    const secondSave = waitForLibraryLength(state.page, 2)
-    await state.page.locator('#save-draft').click()
-    const documents = await secondSave
+    const saveButton = state.page.locator('#save-draft')
+    let documents
+    try {
+      await saveButton.click()
+      await saveButton.click()
+      const payloadLengthsBeforeRelease = await state.page.evaluate(() =>
+        window.__libraryWriteProbe.payloadLengths(),
+      )
+      await state.page.evaluate(() => window.__libraryWriteProbe.releaseFirstWrite())
 
-    // Then
+      // Then
+      assert.deepEqual(
+        payloadLengthsBeforeRelease,
+        [1],
+        'only the first Library write may begin before it commits',
+      )
+      documents = await waitForLibraryLength(state.page, 2)
+    } finally {
+      await state.page.evaluate(() => {
+        const probe = window.__libraryWriteProbe
+        probe?.releaseFirstWrite()
+        probe?.restore()
+      })
+    }
+    assert.ok(documents)
     assert.equal(await state.page.locator('#tab-editor').getAttribute('aria-selected'), 'true')
     assert.match(await state.page.locator('.ProseMirror').textContent(), /Saved title/)
     assert.equal(documents[0].markdown, titledMarkdown)
