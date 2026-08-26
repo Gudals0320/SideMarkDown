@@ -471,4 +471,129 @@ describe('persistent prompt Library', { concurrency: false }, () => {
     }
     assert.deepEqual(state.errors, [])
   })
+
+  test('keeps the saved-document action hierarchy compact, primary, and durable across widths', async () => {
+    // Given
+    await state.page.evaluate(() => chrome.storage.local.set({ miniMdLibrary: [{ id: '11111111-1111-4111-8111-111111111111', markdown: '# Shell fixture', createdAt: 1, updatedAt: 1 }] }))
+    await state.page.reload()
+    await state.page.locator('.ProseMirror').waitFor()
+    await state.page.locator('#tab-library').click()
+    const edit = state.page.locator('.library-card-edit').first()
+    assert.equal(await edit.evaluate((node) => getComputedStyle(node).opacity), '0.72')
+    await edit.click()
+
+    // When / Then
+    for (const width of [375, 768, 1280]) {
+      await state.page.setViewportSize({ width, height: 900 })
+      await state.page.mouse.move(0, 0)
+      const layout = await state.page.evaluate(() => {
+        const toolbar = document.querySelector('#editor-actions')
+        const topbar = document.querySelector('.topbar')
+        const editor = document.querySelector('#editor-view')
+        const status = document.querySelector('#status')
+        const action = (id) => document.querySelector(id)
+        const toRect = (element) => {
+          const { x, y, width, height, top, right, bottom, left } = element.getBoundingClientRect()
+          return { x, y, width, height, top, right, bottom, left }
+        }
+        const visible = [...toolbar.querySelectorAll('button:not([hidden])')].map((button) => ({
+          id: button.id,
+          label: button.getAttribute('aria-label') || button.textContent.trim(),
+          rect: toRect(button),
+          parent: button.parentElement?.className,
+        }))
+        const save = action('#save-document')
+        const remove = action('#delete-document')
+        const before = { topbar: toRect(topbar), editor: toRect(editor) }
+        status.textContent = 'Editor failed to load — long-status-long-status-long-status-long-status'
+        const after = { topbar: toRect(topbar), editor: toRect(editor) }
+        const saveStyle = getComputedStyle(save)
+        const removeStyle = getComputedStyle(remove)
+        return {
+          toolbar: toRect(toolbar),
+          visible,
+          rows: [...new Set(visible.map(({ rect }) => Math.round(rect.top)))],
+          bodyFits: document.body.scrollWidth <= document.body.clientWidth,
+          toolbarFits: toolbar.scrollWidth <= toolbar.clientWidth,
+          statusText: status.textContent,
+          statusEllipsizes: status.scrollWidth > status.clientWidth,
+          before,
+          after,
+          save: {
+            backgroundColor: saveStyle.backgroundColor,
+            borderColor: saveStyle.borderColor,
+            color: saveStyle.color,
+            fontWeight: saveStyle.fontWeight,
+          },
+          remove: {
+            backgroundColor: removeStyle.backgroundColor,
+            borderColor: removeStyle.borderColor,
+            color: removeStyle.color,
+            fontWeight: removeStyle.fontWeight,
+          },
+          svg: [...document.querySelectorAll('#editor-actions svg, .library-card-edit svg')].map((icon) => ({
+            width: icon.getAttribute('width'),
+            height: icon.getAttribute('height'),
+            viewBox: icon.getAttribute('viewBox'),
+            fill: icon.getAttribute('fill'),
+            stroke: icon.getAttribute('stroke'),
+            strokeWidth: icon.getAttribute('stroke-width'),
+            linecap: icon.getAttribute('stroke-linecap'),
+            linejoin: icon.getAttribute('stroke-linejoin'),
+            hidden: icon.getAttribute('aria-hidden'),
+          })),
+        }
+      })
+      assert.deepEqual(layout.visible.map(({ label }) => label), ['Copy MD', 'Copy compact', 'Save changes', 'Cancel', 'Delete'])
+      assert.deepEqual(layout.visible.map(({ parent }) => parent), ['copy-actions', 'copy-actions', 'document-actions', 'document-actions', 'document-actions'])
+      assert.equal(layout.rows.length, width === 375 ? 2 : 1)
+      assert.equal(layout.bodyFits, true)
+      assert.equal(layout.toolbarFits, true)
+      assert.match(layout.statusText, /Editor failed to load/)
+      assert.equal(layout.statusEllipsizes, width === 375)
+      assert.deepEqual(layout.before, layout.after)
+      for (const action of layout.visible) {
+        assert.ok(action.rect.height >= 36)
+        assert.ok(action.rect.left >= layout.toolbar.left)
+        assert.ok(action.rect.right <= layout.toolbar.right)
+        assert.ok(action.rect.top >= layout.toolbar.top)
+        assert.ok(action.rect.bottom <= layout.toolbar.bottom)
+      }
+      for (const [index, action] of layout.visible.entries()) {
+        for (const other of layout.visible.slice(index + 1)) {
+          const overlaps = action.rect.left < other.rect.right && action.rect.right > other.rect.left && action.rect.top < other.rect.bottom && action.rect.bottom > other.rect.top
+          assert.equal(overlaps, false, `${action.id} overlaps ${other.id}`)
+        }
+      }
+      assert.notEqual(layout.save.backgroundColor, layout.remove.backgroundColor)
+      assert.equal(layout.save.fontWeight, '700')
+      assert.notEqual(layout.save.borderColor, layout.remove.borderColor)
+      assert.notEqual(layout.save.color, layout.remove.color)
+      assert.equal(layout.remove.fontWeight, '400')
+      for (const icon of layout.svg) {
+        assert.deepEqual(icon, {
+          width: '16', height: '16', viewBox: '0 0 16 16', fill: 'none', stroke: 'currentColor', strokeWidth: '1.75', linecap: 'round', linejoin: 'round', hidden: 'true',
+        })
+      }
+
+      const save = state.page.locator('#save-document')
+      await save.hover()
+      assert.notEqual(await save.evaluate((node) => getComputedStyle(node).backgroundColor), layout.save.backgroundColor)
+      const saveBounds = await save.boundingBox()
+      assert.ok(saveBounds)
+      await state.page.mouse.move(saveBounds.x + saveBounds.width / 2, saveBounds.y + saveBounds.height / 2)
+      await state.page.mouse.down()
+      assert.notEqual(await save.evaluate((node) => getComputedStyle(node).transform), 'none')
+      await state.page.mouse.move(0, 0)
+      await state.page.mouse.up()
+      await state.page.locator('#copy-compact').focus()
+      await state.page.keyboard.press('Tab')
+      assert.equal(await save.evaluate((node) => document.activeElement === node), true)
+      assert.equal(await save.evaluate((node) => getComputedStyle(node).outlineStyle), 'solid')
+      await save.evaluate((node) => { node.disabled = true })
+      assert.equal(await save.evaluate((node) => getComputedStyle(node).cursor), 'not-allowed')
+      assert.equal(await save.evaluate((node) => getComputedStyle(node).opacity), '0.55')
+      await save.evaluate((node) => { node.disabled = false })
+    }
+  })
 })

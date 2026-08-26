@@ -432,11 +432,11 @@ test('side panel exposes separate canonical and compact copy actions', () => {
 
   assert.match(
     html,
-    /<button\s+id="copy"[^>]*aria-label="Copy canonical Markdown"[^>]*title="Copy canonical Markdown"[^>]*>\s*Markdown\s*<\/button>/,
+    /<button\s+id="copy"[^>]*aria-label="Copy MD"[^>]*title="Copy MD"[^>]*>[\s\S]*Copy MD[\s\S]*<\/button>/,
   )
   assert.match(
     html,
-    /<button\s+id="copy-compact"[^>]*aria-label="Copy compact Markdown"[^>]*title="Copy compact Markdown"[^>]*>\s*Compact\s*<\/button>/,
+    /<button\s+id="copy-compact"[^>]*aria-label="Copy compact"[^>]*title="Copy compact"[^>]*>[\s\S]*Copy compact[\s\S]*<\/button>/,
   )
   assert.match(sidepanel, /requireElement<HTMLButtonElement>\('#copy-compact'\)/)
   assert.match(sidepanel, /compactMarkdownBlocksForCopy/)
@@ -460,6 +460,25 @@ test('side panel exposes persistent Editor and Library workflows', () => {
   assert.match(sidepanel, /event\.stopPropagation\(\)/)
   assert.match(sidepanel, /Discard unsaved changes/)
   assert.match(sidepanel, /Delete this saved document permanently/)
+})
+
+test('compact shell keeps named action groups, visible labels, and project-owned icon geometry', () => {
+  const html = readText('sidepanel.html')
+  const css = readText('src', 'styles.css')
+  const sidepanel = readText('src', 'sidepanel.ts')
+
+  assert.match(html, /<div class="topbar">[\s\S]*SideMarkDown[\s\S]*role="tablist"[\s\S]*id="status"/)
+  assert.match(html, /id="editor-actions" class="toolbar-actions"[\s\S]*class="copy-actions"/)
+  assert.match(html, /class="document-actions"[\s\S]*id="clear"[\s\S]*id="save-draft"[\s\S]*id="save-document"[\s\S]*id="cancel-document"[\s\S]*id="delete-document"/)
+  for (const label of ['Copy MD', 'Copy compact', 'Clear', 'Save to Library', 'Save changes', 'Cancel', 'Delete']) {
+    assert.match(html, new RegExp(`>\\s*${label}\\s*<`))
+  }
+  assert.equal((html.match(/<svg[^>]*width="16"[^>]*height="16"[^>]*fill="none"[^>]*stroke="currentColor"[^>]*stroke-width="1\.75"[^>]*stroke-linecap="round"[^>]*stroke-linejoin="round"[^>]*aria-hidden="true"/g) ?? []).length, 4)
+  assert.match(sidepanel, /icon\.setAttribute\('width', '16'\)/)
+  assert.match(sidepanel, /icon\.setAttribute\('stroke-width', '1\.75'\)/)
+  assert.match(css, /#status[\s\S]*overflow: hidden;[\s\S]*text-overflow: ellipsis;[\s\S]*white-space: nowrap;/)
+  assert.match(css, /\.library-card-edit[\s\S]*opacity: 0\.72;/)
+  assert.match(css, /\.copy-actions[\s\S]*\.document-actions/)
 })
 
 test('built extension artifacts are load-unpacked compatible and local-only', () => {

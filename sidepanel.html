@@ -8,64 +8,31 @@
   <body>
     <header class="app-header">
       <div class="topbar">
-        <strong>SideMarkDown</strong>
+        <strong class="app-title">SideMarkDown</strong>
+        <nav class="tabs" role="tablist" aria-label="SideMarkDown sections">
+          <button id="tab-editor" class="tab" type="button" role="tab" aria-selected="true" aria-controls="editor-view">Editor</button>
+          <button id="tab-library" class="tab" type="button" role="tab" aria-selected="false" aria-controls="library-view">Library</button>
+        </nav>
         <p id="status" role="status" aria-live="polite"></p>
       </div>
-      <nav class="tabs" role="tablist" aria-label="SideMarkDown sections">
-        <button
-          id="tab-editor"
-          class="tab"
-          type="button"
-          role="tab"
-          aria-selected="true"
-          aria-controls="editor-view"
-        >
-          Editor
-        </button>
-        <button
-          id="tab-library"
-          class="tab"
-          type="button"
-          role="tab"
-          aria-selected="false"
-          aria-controls="library-view"
-        >
-          Library
-        </button>
-      </nav>
       <div id="editor-actions" class="toolbar-actions">
-        <button
-          id="copy"
-          type="button"
-          aria-label="Copy canonical Markdown"
-          title="Copy canonical Markdown"
-        >
-          Markdown
-        </button>
-        <button
-          id="copy-compact"
-          type="button"
-          aria-label="Copy compact Markdown"
-          title="Copy compact Markdown"
-        >
-          Compact
-        </button>
-        <button id="clear" class="draft-action" type="button">Clear</button>
-        <button id="save-draft" class="draft-action" type="button">Save</button>
-        <button id="save-document" class="document-action" type="button" hidden>
-          Save
-        </button>
-        <button id="cancel-document" class="document-action" type="button" hidden>
-          Cancel
-        </button>
-        <button
-          id="delete-document"
-          class="document-action danger-button"
-          type="button"
-          hidden
-        >
-          Delete
-        </button>
+        <div class="copy-actions" aria-label="Copy actions">
+          <button id="copy" type="button" aria-label="Copy MD" title="Copy MD">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5.25" y="2.25" width="7" height="8" rx="1"/><path d="M3.75 5.75h-1a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1v-1"/></svg>
+            Copy MD
+          </button>
+          <button id="copy-compact" type="button" aria-label="Copy compact" title="Copy compact">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5.25" y="2.25" width="7" height="8" rx="1"/><path d="M3.75 5.75h-1a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1v-1"/></svg>
+            Copy compact
+          </button>
+        </div>
+        <div class="document-actions" aria-label="Document actions">
+          <button id="clear" class="draft-action" type="button"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 4.25h11M6 1.75h4M4.25 4.25l.75 10h6l.75-10M6.5 6.5v5M9.5 6.5v5"/></svg>Clear</button>
+          <button id="save-draft" class="draft-action" type="button">Save to Library</button>
+          <button id="save-document" class="document-action" type="button" hidden>Save changes</button>
+          <button id="cancel-document" class="document-action" type="button" hidden>Cancel</button>
+          <button id="delete-document" class="document-action danger-button" type="button" hidden><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 4.25h11M6 1.75h4M4.25 4.25l.75 10h6l.75-10M6.5 6.5v5M9.5 6.5v5"/></svg>Delete</button>
+        </div>
       </div>
     </header>
     <main

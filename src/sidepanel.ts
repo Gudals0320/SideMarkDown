@@ -299,17 +299,19 @@ const editLibraryDocument = (documentId: LibraryDocumentId) => {
 const createEditIcon = (): SVGSVGElement => {
   const namespace = 'http://www.w3.org/2000/svg'
   const icon = document.createElementNS(namespace, 'svg')
-  icon.setAttribute('viewBox', '0 0 24 24')
+  icon.setAttribute('width', '16')
+  icon.setAttribute('height', '16')
+  icon.setAttribute('viewBox', '0 0 16 16')
   icon.setAttribute('fill', 'none')
   icon.setAttribute('stroke', 'currentColor')
-  icon.setAttribute('stroke-width', '2')
+  icon.setAttribute('stroke-width', '1.75')
   icon.setAttribute('stroke-linecap', 'round')
   icon.setAttribute('stroke-linejoin', 'round')
   icon.setAttribute('aria-hidden', 'true')
   const path = document.createElementNS(namespace, 'path')
   path.setAttribute(
     'd',
-    'M12 20h9 M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z',
+    'M8.5 13.5H14 M10.8 2.8a1.5 1.5 0 0 1 2.1 2.1L5.6 12.2 3 13l.8-2.6Z',
   )
   icon.appendChild(path)
   return icon

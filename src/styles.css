@@ -90,21 +90,21 @@ body {
 .topbar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
+  gap: 4px;
   min-height: 36px;
-  padding: 6px 10px 4px;
+  padding: 6px 8px;
 }
 
 .tabs {
   display: flex;
   gap: 4px;
-  padding: 0 8px;
+  min-width: 0;
+  margin-inline-start: 4px;
 }
 
 .tab {
-  flex: 1;
-  min-height: 32px;
+  min-height: 28px;
+  padding-inline: 6px;
   border-bottom-right-radius: 0;
   border-bottom-left-radius: 0;
   background: transparent;
@@ -119,24 +119,46 @@ body {
 .toolbar-actions {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: space-between;
   flex-wrap: wrap;
-  gap: 6px;
-  min-height: 44px;
+  gap: 4px 8px;
+  min-height: 48px;
   padding: 6px 8px;
   border-top: 1px solid var(--color-border);
+}
+
+.copy-actions,
+.document-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.copy-actions {
+  flex: none;
+}
+
+.document-actions {
+  justify-content: flex-end;
+  flex: 1 1 auto;
 }
 
 button {
   border: 1px solid var(--color-border-strong);
   border-radius: 8px;
-  min-height: 32px;
-  padding: 5px 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-height: 36px;
+  padding: 6px 7px;
   background: var(--color-editor-surface);
   color: var(--color-ink);
   font: inherit;
-  font-size: 12px;
+  font-size: 11px;
   cursor: pointer;
+  transition: transform 120ms ease-out, color 120ms ease-out;
 }
 
 button:hover:not(:disabled) {
@@ -146,6 +168,10 @@ button:hover:not(:disabled) {
 button:focus-visible {
   outline: 2px solid var(--color-accent-strong);
   outline-offset: 1px;
+}
+
+button:active:not(:disabled) {
+  transform: translateY(1px);
 }
 
 button:disabled {
@@ -167,10 +193,14 @@ button:disabled {
 }
 
 #status {
-  min-width: 48px;
+  min-width: 0;
+  flex: 1 1 48px;
   margin: 0;
   font-size: 12px;
-  text-align: right;
+  overflow: hidden;
+  text-align: end;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: var(--color-ink-muted);
 }
 
@@ -262,13 +292,17 @@ button:disabled {
   width: 32px;
   min-height: 32px;
   padding: 0;
-  opacity: 0;
-  transition: opacity 120ms ease;
+  opacity: 0.72;
+  transition: transform 120ms ease-out, opacity 120ms ease-out, color 120ms ease-out;
 }
 
 .library-card:hover .library-card-edit,
 .library-card:focus-within .library-card-edit {
   opacity: 1;
+}
+
+.library-card-edit:active:not(:disabled) {
+  transform: translateY(1px);
 }
 
 .library-card-edit svg {
@@ -288,6 +322,17 @@ button:disabled {
   color: var(--color-danger);
 }
 
+#save-document {
+  border-color: var(--color-accent-strong);
+  background: var(--color-accent-strong);
+  color: var(--color-editor-surface);
+  font-weight: 700;
+}
+
+#save-document:hover:not(:disabled) {
+  background: var(--color-accent);
+}
+
 a {
   color: var(--color-accent-strong);
 }
@@ -303,11 +348,12 @@ a {
 
 @media (max-width: 420px) {
   .topbar {
-    padding-inline: 8px;
+    gap: 2px;
+    padding-inline: 6px;
   }
 
   .tabs {
-    padding-inline: 6px;
+    margin-inline-start: 0;
   }
 
   .toolbar-actions {
@@ -316,11 +362,12 @@ a {
   }
 
   button {
-    padding-inline: 6px;
+    padding-inline: 4px;
   }
 
-  #status {
-    min-width: 40px;
+  .document-actions:has(#save-document:not([hidden])) {
+    flex-basis: 100%;
+    justify-content: space-between;
   }
 }
 
