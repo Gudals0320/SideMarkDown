@@ -234,6 +234,54 @@ describe('unpacked SideMarkDown extension', { concurrency: false }, () => {
     await screenshot(state.page, 'manual-korean-375x900.png')
   })
 
+  test('shows the empty-editor placeholder until focus or input', async () => {
+    const page = state.page
+    try {
+      await page.evaluate((key) => chrome.storage.session.set({ [key]: '' }), draftKey)
+      for (const colorScheme of ['light', 'dark']) {
+        await page.emulateMedia({ colorScheme })
+        await page.reload()
+        const editor = page.locator('.ProseMirror')
+        await editor.waitFor()
+        const empty = await editor.evaluate((node) => {
+          const paragraph = node.querySelector('p')
+          const pseudo = paragraph ? getComputedStyle(paragraph, '::before') : undefined
+          const editorPseudo = getComputedStyle(node, '::before')
+          return {
+            editorPlaceholder: node.getAttribute('data-placeholder'),
+            paragraphPlaceholder: paragraph?.getAttribute('data-placeholder') ?? null,
+            paragraphContent: pseudo?.content ?? null,
+            editorContent: editorPseudo.content,
+            editorText: node.textContent,
+          }
+        })
+        assert.equal(empty.editorPlaceholder, 'Start writing…')
+        assert.equal(empty.paragraphPlaceholder, null)
+        assert.equal(empty.paragraphContent, 'none', 'placeholder must not depend on an absent paragraph attribute')
+        assert.equal(empty.editorContent, '"Start writing…"', `${colorScheme} empty unfocused editor must visibly render its placeholder`)
+        assert.equal(empty.editorText, '')
+        await screenshot(page, `manual-placeholder-${colorScheme}-375x900.png`)
+
+        await editor.focus()
+        assert.equal(await editor.evaluate((node) => getComputedStyle(node, '::before').content), 'none', `${colorScheme} focused editor must hide its placeholder`)
+        await editor.pressSequentially('A')
+        assert.equal(await editor.textContent(), 'A')
+        assert.equal(await editor.evaluate((node) => getComputedStyle(node, '::before').content), 'none', `${colorScheme} typed editor must hide its placeholder`)
+        await editor.press('ControlOrMeta+A')
+        await editor.press('Backspace')
+        assert.equal(await editor.textContent(), '')
+        assert.equal(await editor.evaluate((node) => getComputedStyle(node, '::before').content), 'none', `${colorScheme} focused empty editor must keep its placeholder hidden`)
+        await page.locator('#tab-library').focus()
+        assert.equal(await editor.evaluate((node) => getComputedStyle(node, '::before').content), '\"Start writing…\"', `${colorScheme} emptied editor must restore its placeholder after focus leaves`)
+      }
+    } finally {
+      await page.evaluate(({ key, markdown }) => chrome.storage.session.set({ [key]: markdown }), { key: draftKey, markdown: sourceMarkdown })
+      await page.emulateMedia({ colorScheme: 'light' })
+      await page.reload()
+      await page.locator('.ProseMirror code').waitFor()
+    }
+  })
+
   test('uses exact semantic colors without Nord runtime classes in light and dark', async () => {
     const inlineCode = state.page.locator('.ProseMirror :not(pre) > code').first()
     for (const colorScheme of ['light', 'dark']) {
