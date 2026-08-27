@@ -911,7 +911,7 @@ describe('persistent prompt Library', { concurrency: false }, () => {
         assert.equal(geometry.bodyFits, true)
         assert.equal(geometry.cardsFit, true)
         assert.deepEqual(geometry.spacing, {
-          card: { gap: '8px', padding: '12px' },
+          card: { gap: '8px', padding: '16px' },
           copy: { columnGap: '12px', rowGap: '4px' },
           action: { gap: '4px', padding: '4px 8px' },
         })

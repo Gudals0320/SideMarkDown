@@ -935,16 +935,34 @@ describe('unpacked SideMarkDown extension', { concurrency: false }, () => {
       const zoomGeometry = await page.evaluate(() => {
         const zoom = Number.parseFloat(getComputedStyle(document.documentElement).zoom)
         const viewportWidth = document.documentElement.clientWidth / zoom
+        const title = document.querySelector('.app-title')
+        const titleRect = title.getBoundingClientRect()
         const controls = [...document.querySelectorAll('#copy, #copy-compact, #save-document, #cancel-document, #delete-document')].map((button) => {
           const rect = button.getBoundingClientRect()
           const style = getComputedStyle(button)
           return { id: button.id, left: rect.left / zoom, right: rect.right / zoom, top: rect.top / zoom, bottom: rect.bottom / zoom, width: rect.width / zoom, height: rect.height / zoom, text: button.textContent.trim(), outlineWidth: style.outlineWidth, outlineStyle: style.outlineStyle }
         })
         const overlaps = controls.flatMap((control, index) => controls.slice(index + 1).flatMap((other) => control.left < other.right && control.right > other.left && control.top < other.bottom && control.bottom > other.top ? [[control.id, other.id]] : []))
-        return { zoom, viewportWidth, bodyFits: document.body.scrollWidth <= document.body.clientWidth, controls, overlaps, toolbarRows: new Set(controls.map((control) => control.top)).size }
+        return {
+          zoom,
+          viewportWidth,
+          bodyFits: document.body.scrollWidth <= document.body.clientWidth,
+          title: {
+            text: title.textContent,
+            clipped: title.scrollWidth > title.clientWidth,
+            left: titleRect.left / zoom,
+            right: titleRect.right / zoom,
+          },
+          controls,
+          overlaps,
+          toolbarRows: new Set(controls.map((control) => control.top)).size,
+        }
       })
       assert.equal(zoomGeometry.zoom, 2, 'CSS zoom must be the real 200% layout state')
       assert.equal(zoomGeometry.bodyFits, true, 'CSS zoom must not introduce body horizontal overflow')
+      assert.equal(zoomGeometry.title.text, 'SideMarkDown', 'CSS zoom must preserve the complete product identity')
+      assert.equal(zoomGeometry.title.clipped, false, 'CSS zoom must not clip or ellipsize the product identity')
+      assert.ok(zoomGeometry.title.left >= 0 && zoomGeometry.title.right <= zoomGeometry.viewportWidth, 'CSS zoom must keep the complete product identity in view')
       assert.ok(zoomGeometry.toolbarRows >= 2, 'saved toolbar must reflow under 200% CSS zoom')
       assert.deepEqual(zoomGeometry.overlaps, [], 'zoomed saved toolbar controls must not overlap')
       for (const control of zoomGeometry.controls) {

@@ -10,6 +10,56 @@
   --space-10: 40px;
   --space-12: 48px;
   --space-16: 64px;
+  --font-sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", "Noto Sans CJK KR", sans-serif;
+  --font-mono: "Cascadia Mono", Consolas, "Liberation Mono", monospace;
+  --type-brand-size: 16px;
+  --type-control-size: 14px;
+  --type-body-size: 15px;
+  --type-metadata-size: 15px;
+  --type-code-size: 13px;
+  --type-inline-code-size: 0.9em;
+  --type-h1-size: 26px;
+  --type-h2-size: 21px;
+  --type-h3-size: 17px;
+  --type-body-line: 1.72;
+  --type-ui-line: 1.5;
+  --type-code-line: 1.6;
+  --type-inline-code-line: 1.45;
+  --type-h1-line: 1.2;
+  --type-h2-line: 1.3;
+  --type-h3-line: 1.4;
+  --type-h1-margin: 28px 0 16px;
+  --type-h2-margin: 26px 0 10px;
+  --type-h3-margin: 22px 0 8px;
+  --type-h4-margin: 18px 0 8px;
+  --type-list-margin: 8px 0 14px;
+  --type-list-item-gap: 3px;
+  --weight-semibold: 600;
+  --weight-bold: 700;
+  --tracking-h1: -0.025em;
+  --tracking-h2: -0.018em;
+  --tracking-h3: -0.01em;
+  --control-min-inline: 24px;
+  --control-min-block: 36px;
+  --control-padding-block: 4px;
+  --control-padding-inline: 12px;
+  --control-padding-inline-compact: 8px;
+  --icon-size: 16px;
+  --icon-size-compact: 15px;
+  --radius-control: 8px;
+  --radius-card: 8px;
+  --radius-code: 6px;
+  --radius-inline: 4px;
+  --border-width: 1px;
+  --border-quote-width: 3px;
+  --focus-width: 2px;
+  --link-underline-width: 1px;
+  --link-underline-active-width: 2px;
+  --link-underline-offset: 2px;
+  --code-padding: 14px 16px;
+  --motion-duration: 120ms;
+  --motion-easing: ease-out;
+  --motion-press-offset: 1px;
   --color-canvas: #F2F0EB;
   --color-surface: #F8F7F3;
   --color-editor-surface: #FFFDF8;
@@ -34,13 +84,7 @@
   --color-selection-foreground: #1A2230;
   --color-selection-background: #CBD8E8;
   --color-caret: #355884;
-  font-family:
-    ui-sans-serif,
-    system-ui,
-    -apple-system,
-    BlinkMacSystemFont,
-    "Segoe UI",
-    sans-serif;
+  font-family: var(--font-sans);
   background: var(--color-canvas);
   color: var(--color-ink);
 }
@@ -95,23 +139,25 @@ body {
   flex: none;
   flex-direction: column;
   min-width: 0;
-  border-bottom: 1px solid var(--color-border);
+  border-bottom: var(--border-width) solid var(--color-border);
   background: var(--color-surface);
 }
 
 .topbar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: var(--space-1);
+  gap: var(--space-2) var(--space-3);
   min-width: 0;
-  min-height: calc(var(--space-8) + var(--space-1));
-  padding: var(--space-1) var(--space-2);
+  min-height: calc(var(--space-10) + var(--space-3));
+  padding: var(--space-2) var(--space-3);
 }
 
 .app-title {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  flex: none;
+  font-size: var(--type-brand-size);
+  line-height: var(--type-ui-line);
+  letter-spacing: var(--tracking-h3);
   white-space: nowrap;
 }
 
@@ -120,12 +166,12 @@ body {
   flex: none;
   gap: var(--space-1);
   min-width: 0;
-  margin-inline-start: 4px;
+  margin-inline-start: var(--space-1);
 }
 
 .tab {
   min-width: var(--space-6);
-  padding-inline: var(--space-2);
+  padding-inline: var(--control-padding-inline-compact);
   border-bottom-right-radius: 0;
   border-bottom-left-radius: 0;
   background: transparent;
@@ -134,7 +180,7 @@ body {
 .tab[aria-selected="true"] {
   border-bottom-color: var(--color-accent);
   background: var(--color-editor-surface);
-  box-shadow: inset 0 -2px var(--color-accent);
+  box-shadow: inset 0 calc(-1 * var(--focus-width)) var(--color-accent);
 }
 
 .toolbar-actions {
@@ -144,9 +190,9 @@ body {
   flex-wrap: wrap;
   gap: var(--space-1) var(--space-2);
   min-width: 0;
-  min-height: 48px;
-  padding: var(--space-1) var(--space-2);
-  border-top: 1px solid var(--color-border);
+  min-height: var(--space-12);
+  padding: var(--space-2) var(--space-3);
+  border-top: var(--border-width) solid var(--color-border);
 }
 
 .copy-actions,
@@ -154,7 +200,7 @@ body {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: var(--space-1);
+  gap: var(--space-2);
   min-width: 0;
 }
 
@@ -168,21 +214,22 @@ body {
 }
 
 button {
-  border: 1px solid var(--color-border-strong);
-  border-radius: 8px;
+  border: var(--border-width) solid var(--color-border-strong);
+  border-radius: var(--radius-control);
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: var(--space-1);
-  min-width: var(--space-6);
-  min-height: calc(var(--space-8) + var(--space-1));
-  padding: var(--space-1) var(--space-2);
+  min-width: var(--control-min-inline);
+  min-height: var(--control-min-block);
+  padding: var(--control-padding-block) var(--control-padding-inline);
   background: var(--color-editor-surface);
   color: var(--color-ink);
   font: inherit;
-  font-size: 11px;
+  font-size: var(--type-control-size);
+  line-height: var(--type-ui-line);
   cursor: pointer;
-  transition: transform 120ms ease-out, color 120ms ease-out;
+  transition: transform var(--motion-duration) var(--motion-easing), color var(--motion-duration) var(--motion-easing);
 }
 
 button:hover:not(:disabled) {
@@ -190,12 +237,12 @@ button:hover:not(:disabled) {
 }
 
 button:focus-visible {
-  outline: 2px solid var(--color-accent-strong);
-  outline-offset: 1px;
+  outline: var(--focus-width) solid var(--color-accent-strong);
+  outline-offset: var(--border-width);
 }
 
 button:active:not(:disabled) {
-  transform: translateY(1px);
+  transform: translateY(var(--motion-press-offset));
 }
 
 button:disabled {
@@ -225,19 +272,13 @@ button:disabled {
   min-width: 0;
   flex: 1 1 0;
   margin: 0;
-  font-size: 12px;
+  font-size: var(--type-metadata-size);
+  line-height: var(--type-ui-line);
   overflow: hidden;
   text-align: end;
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--color-ink-muted);
-}
-
-.editor-mode {
-  margin: 0;
-  padding: 4px 8px;
-  color: var(--color-ink-muted);
-  font-size: 12px;
 }
 
 .ProseMirror[data-placeholder]:not(:focus-within) > p:only-child:has(> br.ProseMirror-trailingBreak:only-child)::before {
@@ -249,12 +290,13 @@ button:disabled {
 .editor-mode {
   flex: none;
   margin: 0;
-  padding: 6px 12px;
-  border-bottom: 1px solid var(--color-border);
+  padding: var(--space-2) var(--space-4);
+  border-bottom: var(--border-width) solid var(--color-border);
   background: var(--color-accent-soft);
   color: var(--color-ink-strong);
-  font-size: 12px;
-  font-weight: 600;
+  font-size: var(--type-metadata-size);
+  font-weight: var(--weight-semibold);
+  line-height: var(--type-ui-line);
 }
 
 #library-view {
@@ -262,24 +304,24 @@ button:disabled {
   min-height: 0;
   min-width: 0;
   overflow: auto;
-  padding: 12px;
+  padding: var(--space-4);
 }
 
 .library-list {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(min(260px, 100%), 1fr));
-  gap: var(--space-2);
+  gap: var(--space-3);
 }
 
 .library-card {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 36px;
+  grid-template-columns: minmax(0, 1fr) calc(var(--control-min-block) + var(--space-1));
   align-items: start;
   gap: var(--space-2);
   min-width: 0;
-  padding: var(--space-3);
-  border: 1px solid var(--color-border);
-  border-radius: var(--space-2);
+  padding: var(--space-4);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-card);
   background: var(--color-editor-surface);
 }
 
@@ -293,7 +335,7 @@ button:disabled {
   gap: var(--space-1) var(--space-3);
   align-items: start;
   width: 100%;
-  min-height: 112px;
+  min-height: calc(var(--space-16) + var(--space-16));
   padding: 0;
   border: 0;
   border-radius: 0;
@@ -314,23 +356,24 @@ button:disabled {
 
 .library-card-title {
   grid-area: title;
-  font-size: 14px;
-  font-weight: 700;
+  font-size: var(--type-body-size);
+  font-weight: var(--weight-bold);
+  line-height: var(--type-ui-line);
 }
 
 .library-card-metadata {
   grid-area: metadata;
   color: var(--color-ink-faint);
-  font-size: 12px;
-  line-height: 1.5;
+  font-size: var(--type-metadata-size);
+  line-height: var(--type-ui-line);
 }
 
 .library-card-preview {
   grid-area: preview;
   display: -webkit-box;
   color: var(--color-ink-muted);
-  font-size: 13px;
-  line-height: 1.45;
+  font-size: var(--type-body-size);
+  line-height: var(--type-ui-line);
   white-space: pre-wrap;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 4;
@@ -339,16 +382,16 @@ button:disabled {
 .library-card-copy-action {
   grid-area: action;
   display: inline-flex;
-  min-width: 36px;
-  min-height: 36px;
+  min-width: var(--control-min-block);
+  min-height: var(--control-min-block);
   align-items: center;
   justify-content: center;
   gap: var(--space-1);
   padding: var(--space-1) var(--space-2);
-  border: 1px solid var(--color-border-strong);
-  border-radius: var(--space-2);
+  border: var(--border-width) solid var(--color-border-strong);
+  border-radius: var(--radius-control);
   color: var(--color-ink);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
 }
 
 .library-card-copy-action svg {
@@ -364,11 +407,11 @@ button:disabled {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 36px;
-  min-height: 36px;
+  width: var(--control-min-block);
+  min-height: var(--control-min-block);
   padding: 0;
   opacity: 1;
-  transition: transform 120ms ease-out, opacity 120ms ease-out, color 120ms ease-out;
+  transition: transform var(--motion-duration) var(--motion-easing), opacity var(--motion-duration) var(--motion-easing), color var(--motion-duration) var(--motion-easing);
 }
 
 .library-card:hover .library-card-edit,
@@ -377,21 +420,22 @@ button:disabled {
 }
 
 .library-card-edit:active:not(:disabled) {
-  transform: translateY(1px);
+  transform: translateY(var(--motion-press-offset));
 }
 
 .library-card-edit svg {
-  width: 15px;
-  height: 15px;
+  width: var(--icon-size-compact);
+  height: var(--icon-size-compact);
 }
 
 .empty-state {
   display: grid;
   justify-items: center;
   gap: var(--space-3);
-  margin: 40px auto;
+  margin: var(--space-10) auto;
   color: var(--color-ink-muted);
-  font-size: 13px;
+  font-size: var(--type-body-size);
+  line-height: var(--type-ui-line);
   text-align: center;
 }
 
@@ -430,8 +474,8 @@ a {
 
 @media (max-width: 420px) {
   .topbar {
-    gap: var(--space-1);
-    padding-inline: var(--space-2);
+    gap: var(--space-2);
+    padding-inline: var(--space-3);
   }
 
   .tabs {
@@ -439,8 +483,8 @@ a {
   }
 
   .toolbar-actions {
-    gap: var(--space-1);
-    padding-inline: var(--space-2);
+    gap: var(--space-2);
+    padding-inline: var(--space-3);
   }
 
   .toolbar-actions:has(#save-document:not([hidden])) .copy-actions,
@@ -482,20 +526,12 @@ a {
   width: 100%;
   min-width: 100%;
   min-height: 100%;
-  padding-block: 24px 48px;
-  padding-inline: max(16px, calc((100% - 72ch) / 2));
+  padding-block: var(--space-6) var(--space-12);
+  padding-inline: max(var(--space-4), calc((100% - 72ch) / 2));
   outline: none;
-  font-family:
-    system-ui,
-    -apple-system,
-    BlinkMacSystemFont,
-    "Segoe UI",
-    "Malgun Gothic",
-    "Apple SD Gothic Neo",
-    "Noto Sans CJK KR",
-    sans-serif;
-  font-size: 15px;
-  line-height: 1.72;
+  font-family: var(--font-sans);
+  font-size: var(--type-body-size);
+  line-height: var(--type-body-line);
   word-break: keep-all;
   overflow-wrap: anywhere;
   background: var(--color-editor-surface);
@@ -505,17 +541,17 @@ a {
 
 @media (max-width: 420px) {
   .ProseMirror {
-    padding: 20px 16px 40px;
+    padding: var(--space-5) var(--space-4) var(--space-10);
   }
 }
 
 .ProseMirror:focus-visible {
-  outline: 2px solid var(--color-accent-strong);
-  outline-offset: -2px;
+  outline: var(--focus-width) solid var(--color-accent-strong);
+  outline-offset: calc(-1 * var(--focus-width));
 }
 
 .ProseMirror p {
-  margin: 0 0 12px;
+  margin: 0 0 var(--space-3);
 }
 
 .ProseMirror h1,
@@ -528,11 +564,11 @@ a {
 }
 
 .ProseMirror h1 {
-  margin: 28px 0 16px;
-  font-size: 26px;
-  font-weight: 700;
-  line-height: 1.2;
-  letter-spacing: -0.025em;
+  margin: var(--type-h1-margin);
+  font-size: var(--type-h1-size);
+  font-weight: var(--weight-bold);
+  line-height: var(--type-h1-line);
+  letter-spacing: var(--tracking-h1);
 }
 
 .ProseMirror h1:first-child {
@@ -540,33 +576,33 @@ a {
 }
 
 .ProseMirror h2 {
-  margin: 26px 0 10px;
-  font-size: 21px;
-  font-weight: 700;
-  line-height: 1.3;
-  letter-spacing: -0.018em;
+  margin: var(--type-h2-margin);
+  font-size: var(--type-h2-size);
+  font-weight: var(--weight-bold);
+  line-height: var(--type-h2-line);
+  letter-spacing: var(--tracking-h2);
 }
 
 .ProseMirror h3 {
-  margin: 22px 0 8px;
-  font-size: 17px;
-  font-weight: 600;
-  line-height: 1.4;
-  letter-spacing: -0.01em;
+  margin: var(--type-h3-margin);
+  font-size: var(--type-h3-size);
+  font-weight: var(--weight-semibold);
+  line-height: var(--type-h3-line);
+  letter-spacing: var(--tracking-h3);
 }
 
 .ProseMirror h4,
 .ProseMirror h5,
 .ProseMirror h6 {
-  margin: 18px 0 8px;
-  font-size: 15px;
-  font-weight: 600;
-  line-height: 1.5;
+  margin: var(--type-h4-margin);
+  font-size: var(--type-body-size);
+  font-weight: var(--weight-semibold);
+  line-height: var(--type-ui-line);
 }
 
 .ProseMirror strong {
   color: var(--color-ink-strong);
-  font-weight: 700;
+  font-weight: var(--weight-bold);
 }
 
 .ProseMirror em {
@@ -576,28 +612,28 @@ a {
 .ProseMirror a {
   color: var(--color-accent-strong);
   text-decoration-line: underline;
-  text-decoration-thickness: 1px;
-  text-underline-offset: 2px;
+  text-decoration-thickness: var(--link-underline-width);
+  text-underline-offset: var(--link-underline-offset);
 }
 
 .ProseMirror a:hover,
 .ProseMirror a:focus-visible {
-  text-decoration-thickness: 2px;
+  text-decoration-thickness: var(--link-underline-active-width);
 }
 
 .ProseMirror ul,
 .ProseMirror ol {
-  margin: 8px 0 14px;
+  margin: var(--type-list-margin);
   padding-inline-start: 1.45em;
 }
 
 .ProseMirror li + li {
-  margin-top: 3px;
+  margin-top: var(--type-list-item-gap);
 }
 
 .ProseMirror li > ul,
 .ProseMirror li > ol {
-  margin: 4px 0;
+  margin: var(--space-1) 0;
   padding-inline-start: 1.25em;
 }
 
@@ -607,13 +643,13 @@ a {
 
 .ProseMirror ol ::marker {
   color: var(--color-ink-strong);
-  font-weight: 700;
+  font-weight: var(--weight-bold);
 }
 
 .ProseMirror blockquote {
-  margin: 16px 0;
-  padding: 8px 12px 8px 16px;
-  border-inline-start: 3px solid var(--color-quote-border);
+  margin: var(--space-4) 0;
+  padding: var(--space-2) var(--space-3) var(--space-2) var(--space-4);
+  border-inline-start: var(--border-quote-width) solid var(--color-quote-border);
   background: var(--color-quote-surface);
   color: var(--color-ink-muted);
 }
@@ -624,9 +660,9 @@ a {
 
 .ProseMirror hr {
   height: 0;
-  margin: 24px 0;
+  margin: var(--space-6) 0;
   border: 0;
-  border-top: 1px solid var(--color-border);
+  border-top: var(--border-width) solid var(--color-border);
 }
 
 .ProseMirror img {
@@ -634,40 +670,45 @@ a {
   display: block;
   max-width: 100%;
   height: auto;
-  margin: 16px 0;
-  border: 1px solid var(--color-border);
-  border-radius: 8px;
+  margin: var(--space-4) 0;
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-card);
   outline: 0 solid transparent;
-  outline-offset: -2px;
+  outline-offset: calc(-1 * var(--focus-width));
 }
 
 .ProseMirror img.ProseMirror-selectednode {
-  outline: 2px solid var(--color-accent-strong);
+  outline: var(--focus-width) solid var(--color-accent-strong);
 }
 
 .ProseMirror pre {
   overflow-x: auto;
-  margin: 16px 0;
-  padding: 14px 16px;
-  border-radius: 6px;
-  border: 1px solid var(--color-border-strong);
+  margin: var(--space-4) 0;
+  padding: var(--code-padding);
+  border-radius: var(--radius-code);
+  border: var(--border-width) solid var(--color-border-strong);
   background: var(--color-code-background);
   color: var(--color-code-foreground);
-  font-family: "Cascadia Mono", Consolas, "Liberation Mono", monospace;
-  font-size: 13px;
-  line-height: 1.6;
+  font-family: var(--font-mono);
+  font-size: var(--type-code-size);
+  line-height: var(--type-code-line);
   white-space: pre;
 }
 
 .ProseMirror code {
-  font-family: "Cascadia Mono", Consolas, "Liberation Mono", monospace;
+  font-family: var(--font-mono);
 }
 
 .ProseMirror :not(pre) > code {
   padding: 0.12em 0.32em;
-  border-radius: 4px;
+  border-radius: var(--radius-inline);
   color: var(--color-inline-code-foreground);
   background: var(--color-inline-code-background);
-  font-size: 0.9em;
-  line-height: 1.45;
+  font-size: var(--type-inline-code-size);
+  line-height: var(--type-inline-code-line);
+}
+
+button > svg {
+  width: var(--icon-size);
+  height: var(--icon-size);
 }

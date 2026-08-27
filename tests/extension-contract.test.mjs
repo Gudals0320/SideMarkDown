@@ -490,7 +490,7 @@ test('compact shell keeps named action groups, visible labels, and project-owned
   assert.match(sidepanel, /icon\.setAttribute\('width', '16'\)/)
   assert.match(sidepanel, /icon\.setAttribute\('stroke-width', '1\.75'\)/)
   assert.match(css, /#status[\s\S]*overflow: hidden;[\s\S]*text-overflow: ellipsis;[\s\S]*white-space: nowrap;/)
-  assert.match(css, /\.library-card-edit[\s\S]*width: 36px;[\s\S]*min-height: 36px;[\s\S]*opacity: 1;/)
+  assert.match(css, /\.library-card-edit[\s\S]*width: var\(--control-min-block\);[\s\S]*min-height: var\(--control-min-block\);[\s\S]*opacity: 1;/)
   assert.match(css, /\.copy-actions[\s\S]*\.document-actions/)
 })
 
@@ -508,7 +508,7 @@ test('Library cards expose stable absolute metadata and a durable empty-state re
   assert.match(sidepanel, /metadata\.setAttribute\('aria-label', `Updated \$\{formattedUpdatedAt\}`\)/)
   assert.match(sidepanel, /copyAction\.append\(createCopyIcon\(\), document\.createTextNode\('Copy'\)\)/)
   assert.match(sidepanel, /libraryEmptyGoToEditor\.addEventListener\('click', \(\) => \{[\s\S]*setPanelView\('editor'\)[\s\S]*ProseMirror/)
-  assert.match(css, /\.library-card-copy-action[\s\S]*min-width: 36px;[\s\S]*min-height: 36px;/)
+  assert.match(css, /\.library-card-copy-action[\s\S]*min-width: var\(--control-min-block\);[\s\S]*min-height: var\(--control-min-block\);/)
 })
 
 test('declares the complete Quiet Paper spacing scale exactly once before Library cards consume it', () => {
@@ -533,9 +533,55 @@ test('declares the complete Quiet Paper spacing scale exactly once before Librar
       `${token} must be declared exactly once with its DESIGN.md value`,
     )
   }
-  assert.match(css, /\.library-card[\s\S]*gap: var\(--space-2\);[\s\S]*padding: var\(--space-3\);/)
+  assert.match(css, /\.library-card[\s\S]*gap: var\(--space-2\);[\s\S]*padding: var\(--space-4\);/)
   assert.match(css, /\.library-card-copy[\s\S]*gap: var\(--space-1\) var\(--space-3\);/)
   assert.match(css, /\.library-card-copy-action[\s\S]*gap: var\(--space-1\);[\s\S]*padding: var\(--space-1\) var\(--space-2\);/)
+})
+
+test('semantic type and component geometry tokens drive the narrow shell', () => {
+  const css = readText('src', 'styles.css')
+  const expectedTokens = {
+    '--font-sans': 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", "Noto Sans CJK KR", sans-serif',
+    '--font-mono': '"Cascadia Mono", Consolas, "Liberation Mono", monospace',
+    '--type-brand-size': '16px',
+    '--type-control-size': '14px',
+    '--type-body-size': '15px',
+    '--type-metadata-size': '15px',
+    '--type-body-line': '1.72',
+    '--type-ui-line': '1.5',
+    '--control-min-block': '36px',
+    '--control-padding-inline': '12px',
+    '--control-padding-inline-compact': '8px',
+    '--icon-size': '16px',
+    '--icon-size-compact': '15px',
+    '--radius-control': '8px',
+    '--radius-card': '8px',
+    '--radius-code': '6px',
+    '--radius-inline': '4px',
+    '--border-width': '1px',
+    '--focus-width': '2px',
+    '--motion-duration': '120ms',
+    '--motion-easing': 'ease-out',
+  }
+
+  for (const [token, value] of Object.entries(expectedTokens)) {
+    assert.equal(
+      (css.match(new RegExp(`${token}: ${value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')};`, 'g')) ?? []).length,
+      1,
+      `${token} must be declared exactly once with its semantic value`,
+    )
+  }
+
+  assert.match(css, /\.topbar\s*\{[\s\S]*flex-wrap: wrap;/)
+  assert.match(css, /\.app-title\s*\{[\s\S]*flex: none;[\s\S]*font-size: var\(--type-brand-size\);/)
+  assert.doesNotMatch(css, /\.app-title\s*\{[^}]*text-overflow:\s*ellipsis;/s)
+  assert.match(css, /button\s*\{[\s\S]*min-height: var\(--control-min-block\);[\s\S]*font-size: var\(--type-control-size\);[\s\S]*transition: transform var\(--motion-duration\) var\(--motion-easing\), color var\(--motion-duration\) var\(--motion-easing\);/)
+  assert.match(css, /#status\s*\{[\s\S]*font-size: var\(--type-metadata-size\);[\s\S]*line-height: var\(--type-ui-line\);/)
+  assert.match(css, /\.editor-mode\s*\{[\s\S]*font-size: var\(--type-metadata-size\);/)
+  assert.match(css, /\.library-card-title[\s\S]*font-size: var\(--type-body-size\);/)
+  assert.match(css, /\.library-card-metadata[\s\S]*font-size: var\(--type-metadata-size\);/)
+  assert.match(css, /\.library-card-preview[\s\S]*font-size: var\(--type-body-size\);/)
+  assert.match(css, /\.ProseMirror\s*\{[\s\S]*font-family: var\(--font-sans\);[\s\S]*font-size: var\(--type-body-size\);[\s\S]*line-height: var\(--type-body-line\);/)
 })
 
 test('built extension artifacts are load-unpacked compatible and local-only', () => {
