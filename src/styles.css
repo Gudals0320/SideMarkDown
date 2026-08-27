@@ -81,8 +81,9 @@
 body {
   display: flex;
   flex-direction: column;
-  width: 100vw;
-  height: 100vh;
+  width: 100%;
+  height: 100dvh;
+  min-height: 0;
   margin: 0;
   overflow: hidden;
   background: var(--color-canvas);
@@ -93,6 +94,7 @@ body {
   display: flex;
   flex: none;
   flex-direction: column;
+  min-width: 0;
   border-bottom: 1px solid var(--color-border);
   background: var(--color-surface);
 }
@@ -100,21 +102,30 @@ body {
 .topbar {
   display: flex;
   align-items: center;
-  gap: 4px;
-  min-height: 36px;
-  padding: 6px 8px;
+  gap: var(--space-1);
+  min-width: 0;
+  min-height: calc(var(--space-8) + var(--space-1));
+  padding: var(--space-1) var(--space-2);
+}
+
+.app-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .tabs {
   display: flex;
-  gap: 4px;
+  flex: none;
+  gap: var(--space-1);
   min-width: 0;
   margin-inline-start: 4px;
 }
 
 .tab {
-  min-height: 28px;
-  padding-inline: 6px;
+  min-width: var(--space-6);
+  padding-inline: var(--space-2);
   border-bottom-right-radius: 0;
   border-bottom-left-radius: 0;
   background: transparent;
@@ -131,9 +142,10 @@ body {
   align-items: center;
   justify-content: space-between;
   flex-wrap: wrap;
-  gap: 4px 8px;
+  gap: var(--space-1) var(--space-2);
+  min-width: 0;
   min-height: 48px;
-  padding: 6px 8px;
+  padding: var(--space-1) var(--space-2);
   border-top: 1px solid var(--color-border);
 }
 
@@ -141,7 +153,8 @@ body {
 .document-actions {
   display: flex;
   align-items: center;
-  gap: 4px;
+  flex-wrap: wrap;
+  gap: var(--space-1);
   min-width: 0;
 }
 
@@ -160,9 +173,10 @@ button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 4px;
-  min-height: 36px;
-  padding: 6px 7px;
+  gap: var(--space-1);
+  min-width: var(--space-6);
+  min-height: calc(var(--space-8) + var(--space-1));
+  padding: var(--space-1) var(--space-2);
   background: var(--color-editor-surface);
   color: var(--color-ink);
   font: inherit;
@@ -194,17 +208,22 @@ button:disabled {
   flex: 1;
   flex-direction: column;
   min-height: 0;
+  min-width: 0;
+  overflow: hidden;
 }
 
 #editor {
+  display: flex;
   flex: 1;
+  flex-direction: column;
   min-height: 0;
+  min-width: 0;
   overflow: auto;
 }
 
 #status {
   min-width: 0;
-  flex: 1 1 48px;
+  flex: 1 1 0;
   margin: 0;
   font-size: 12px;
   overflow: hidden;
@@ -241,6 +260,7 @@ button:disabled {
 #library-view {
   flex: 1;
   min-height: 0;
+  min-width: 0;
   overflow: auto;
   padding: 12px;
 }
@@ -248,7 +268,7 @@ button:disabled {
 .library-list {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(min(260px, 100%), 1fr));
-  gap: 10px;
+  gap: var(--space-2);
 }
 
 .library-card {
@@ -259,7 +279,7 @@ button:disabled {
   min-width: 0;
   padding: var(--space-3);
   border: 1px solid var(--color-border);
-  border-radius: 10px;
+  border-radius: var(--space-2);
   background: var(--color-editor-surface);
 }
 
@@ -326,7 +346,7 @@ button:disabled {
   gap: var(--space-1);
   padding: var(--space-1) var(--space-2);
   border: 1px solid var(--color-border-strong);
-  border-radius: 8px;
+  border-radius: var(--space-2);
   color: var(--color-ink);
   font-weight: 600;
 }
@@ -410,8 +430,8 @@ a {
 
 @media (max-width: 420px) {
   .topbar {
-    gap: 2px;
-    padding-inline: 6px;
+    gap: var(--space-1);
+    padding-inline: var(--space-2);
   }
 
   .tabs {
@@ -419,16 +439,16 @@ a {
   }
 
   .toolbar-actions {
-    gap: 4px;
-    padding-inline: 6px;
+    gap: var(--space-1);
+    padding-inline: var(--space-2);
   }
 
-  button {
-    padding-inline: 4px;
+  .toolbar-actions:has(#save-document:not([hidden])) .copy-actions,
+  .document-actions:has(#save-document:not([hidden])) {
+    flex-basis: 100%;
   }
 
   .document-actions:has(#save-document:not([hidden])) {
-    flex-basis: 100%;
     justify-content: space-between;
   }
 }
@@ -440,17 +460,25 @@ a {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .library-card-edit {
-    transition: none;
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
   }
 }
 
 .milkdown {
+  display: flex;
+  flex: 1;
   width: 100%;
   min-height: 100%;
 }
 
 .ProseMirror {
+  flex: 1;
   width: 100%;
   min-width: 100%;
   min-height: 100%;
@@ -468,7 +496,7 @@ a {
     sans-serif;
   font-size: 15px;
   line-height: 1.72;
-  word-break: normal;
+  word-break: keep-all;
   overflow-wrap: anywhere;
   background: var(--color-editor-surface);
   color: var(--color-ink);
