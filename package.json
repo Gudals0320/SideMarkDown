@@ -8,6 +8,7 @@
     "build": "tsc --noEmit && vite build",
     "test:contracts": "node --test tests/extension-contract.test.mjs tests/library.test.mjs",
     "test:e2e": "node --test --test-concurrency=1 tests/extension-e2e.test.mjs tests/library-e2e.test.mjs",
+    "test:quality": "npm run build && node --test tests/extension-quality.test.mjs",
     "test": "npm run build && npm run test:contracts",
     "test:all": "npm run build && npm run test:contracts && npm run test:e2e",
     "preview": "vite preview"

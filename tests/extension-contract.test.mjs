@@ -140,6 +140,19 @@ test('design contract fixes the Quiet Paper Workbench system before UI changes',
   assertDesignContract(readFileSync(contractPath, 'utf8'))
 })
 
+test('README documents the shipped extension actions and local-only quality boundary', () => {
+  const readme = readText('README.md')
+  for (const term of ['Copy MD', 'Copy compact', 'Save to Library', 'Save changes', 'absolute Library metadata', 'automatic light/dark']) {
+    assert.match(readme, new RegExp(escapeRegex(term)), `README must document ${term}`)
+  }
+  assert.match(readme, /canonical.*compact/s)
+  assert.match(readme, /chrome\.storage\.session/)
+  assert.match(readme, /chrome\.storage\.local/)
+  assert.match(readme, /local-only|기기와 Chrome profile 안에서만/s)
+  assert.equal(readme.includes('Lighthouse score'), false, 'README must not claim an extension-origin Lighthouse score')
+  assert.equal(readme.includes('GFM'), false, 'README must not claim unsupported GFM features')
+})
+
 test('dependency sources and CI actions are immutable and public', () => {
   const lockfile = readText('package-lock.json')
   const workflow = readText('.github', 'workflows', 'ci.yml')

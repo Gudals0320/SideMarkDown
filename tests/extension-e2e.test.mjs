@@ -984,4 +984,5 @@ describe('unpacked SideMarkDown extension', { concurrency: false }, () => {
     writeFileSync(path.join(evidence, 'runtime-errors.json'), JSON.stringify(state.errors, null, 2))
     assert.deepEqual(state.errors, [])
   })
+
 })
