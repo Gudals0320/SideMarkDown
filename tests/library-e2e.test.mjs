@@ -751,9 +751,40 @@ describe('persistent prompt Library', { concurrency: false }, () => {
     assert.equal(await state.page.locator('#tab-editor').evaluate((tab) => document.activeElement === tab), true)
   })
 
-  test('covers status replacement, saved context, and a non-content placeholder', async () => {
-    let page = state.page
+  test('covers status replacement, saved context, and a non-content placeholder', async (t) => {
+    const page = state.page
     await page.clock.install({ time: new Date('2026-08-27T00:00:00Z') })
+    t.after(async () => {
+      await page.clock.resume()
+    })
+    const prepareStatusWait = (expected) =>
+      page.evaluate((expectedStatus) => {
+        const status = document.querySelector('#status')
+        if (!(status instanceof HTMLElement)) {
+          throw new Error('Status region is unavailable.')
+        }
+        window.__sidemarkdownStatusWait = new Promise((resolve) => {
+          const complete = () => {
+            if (status.textContent !== expectedStatus) return
+            observer.disconnect()
+            resolve()
+          }
+          const observer = new MutationObserver(complete)
+          observer.observe(status, { childList: true, characterData: true, subtree: true })
+          complete()
+        })
+      }, expected)
+    const finishStatusWait = () =>
+      page.evaluate(async () => {
+        await window.__sidemarkdownStatusWait
+        delete window.__sidemarkdownStatusWait
+      })
+    const clickAndWaitForStatus = async (selector, expected) => {
+      await prepareStatusWait(expected)
+      await page.locator(selector).click()
+      await finishStatusWait()
+      assert.equal(await page.locator('#status').textContent(), expected)
+    }
     await page.evaluate(
       ({ sessionKey, localKey }) => Promise.all([
         chrome.storage.session.remove(sessionKey),
@@ -763,6 +794,7 @@ describe('persistent prompt Library', { concurrency: false }, () => {
     )
     await page.reload()
     await page.locator('.ProseMirror').waitFor()
+    await page.clock.pauseAt(await page.evaluate(() => Date.now()))
 
     const initial = await page.evaluate(() => ({
       status: document.querySelector('#status').outerHTML,
@@ -784,20 +816,19 @@ describe('persistent prompt Library', { concurrency: false }, () => {
     assert.equal(initial.placeholder, 'Start writing…')
     assert.equal(initial.editorText, '')
 
-    await page.locator('#copy').click()
-    await page.waitForFunction(() => document.querySelector('#status')?.textContent === 'Copied')
-    assert.equal(await page.locator('#status').textContent(), 'Copied')
+    await clickAndWaitForStatus('#copy', 'Copied')
     await page.clock.fastForward(2_499)
     assert.equal(await page.locator('#status').textContent(), 'Copied')
     await page.clock.fastForward(1)
     assert.equal(await page.locator('#status').textContent(), '')
 
     await page.evaluate(() => {
+      window.__sidemarkdownClipboardWriteText = navigator.clipboard.writeText
+      window.__sidemarkdownExecCommand = document.execCommand
       navigator.clipboard.writeText = async () => { throw new Error('forced clipboard failure') }
       document.execCommand = () => { throw new Error('forced fallback failure') }
     })
-    await page.locator('#copy').click()
-    await page.waitForFunction(() => document.querySelector('#status')?.textContent === 'Copy failed')
+    await clickAndWaitForStatus('#copy', 'Copy failed')
     for (const milliseconds of [2_499, 1, 2_499]) {
       await page.clock.fastForward(milliseconds)
       assert.equal(await page.locator('#status').textContent(), 'Copy failed')
@@ -805,18 +836,30 @@ describe('persistent prompt Library', { concurrency: false }, () => {
     await page.clock.fastForward(1)
     assert.equal(await page.locator('#status').textContent(), '')
 
-    await page.locator('#clear').click()
-    await page.waitForFunction(() => document.querySelector('#status')?.textContent === 'Draft cleared')
+    await page.evaluate(() => {
+      navigator.clipboard.writeText = window.__sidemarkdownClipboardWriteText
+      document.execCommand = window.__sidemarkdownExecCommand
+      delete window.__sidemarkdownClipboardWriteText
+      delete window.__sidemarkdownExecCommand
+    })
+    await clickAndWaitForStatus('#clear', 'Draft cleared')
+    await page.clock.fastForward(1_000)
     assert.equal(await page.locator('#status').textContent(), 'Draft cleared')
-    await page.locator('#save-draft').click()
-    await page.waitForFunction(() => document.querySelector('#status')?.textContent === 'Saved to Library')
-    assert.equal(await page.locator('#status').textContent(), 'Saved to Library')
+    await clickAndWaitForStatus('#copy', 'Copied')
+    await page.clock.fastForward(999)
+    assert.equal(await page.locator('#status').textContent(), 'Copied')
+    await page.clock.fastForward(1)
+    assert.equal(await page.locator('#status').textContent(), 'Copied')
+    await page.clock.fastForward(1_499)
+    assert.equal(await page.locator('#status').textContent(), 'Copied')
+    await page.clock.fastForward(1)
+    assert.equal(await page.locator('#status').textContent(), '')
+
+    await clickAndWaitForStatus('#save-draft', 'Saved to Library')
     await page.clock.fastForward(2_499)
     assert.equal(await page.locator('#status').textContent(), 'Saved to Library')
     await page.clock.fastForward(1)
     assert.equal(await page.locator('#status').textContent(), '')
-    await page.clock.resume()
-
   })
 
   test('renders stable absolute Library metadata and preserves explicit card actions under content stress', async () => {
