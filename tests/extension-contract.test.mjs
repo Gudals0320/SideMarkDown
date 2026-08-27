@@ -584,6 +584,34 @@ test('semantic type and component geometry tokens drive the narrow shell', () =>
   assert.match(css, /\.ProseMirror\s*\{[\s\S]*font-family: var\(--font-sans\);[\s\S]*font-size: var\(--type-body-size\);[\s\S]*line-height: var\(--type-body-line\);/)
 })
 
+test('component geometry tokens cover declared list, inline-code, library, and action values', () => {
+  const css = readText('src', 'styles.css')
+  const expectedTokens = {
+    '--component-library-card-min-inline': '260px',
+    '--type-list-indent': '1.45em',
+    '--type-list-nested-indent': '1.25em',
+    '--type-inline-code-padding': '0.12em 0.32em',
+  }
+
+  for (const [token, value] of Object.entries(expectedTokens)) {
+    const escapedValue = value.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&')
+    assert.equal(
+      (css.match(new RegExp(`${token}: ${escapedValue};`, 'g')) ?? []).length,
+      1,
+      `${token} must be declared exactly once with its DESIGN.md value`,
+    )
+  }
+
+  assert.match(
+    css,
+    /\.library-list\s*\{[\s\S]*grid-template-columns: repeat\(auto-fill, minmax\(min\(var\(--component-library-card-min-inline\), 100%\), 1fr\)\);/,
+  )
+  assert.match(css, /\.ProseMirror ul,[\s\S]*\.ProseMirror ol\s*\{[\s\S]*padding-inline-start: var\(--type-list-indent\);/)
+  assert.match(css, /\.ProseMirror li > ul,[\s\S]*\.ProseMirror li > ol\s*\{[\s\S]*padding-inline-start: var\(--type-list-nested-indent\);/)
+  assert.match(css, /\.ProseMirror :not\(pre\) > code\s*\{[\s\S]*padding: var\(--type-inline-code-padding\);/)
+  assert.match(css, /#save-document\s*\{[\s\S]*font-weight: var\(--weight-bold\);/)
+})
+
 test('built extension artifacts are load-unpacked compatible and local-only', () => {
   const dist = path.join(root, 'dist')
   const manifestPath = path.join(dist, 'manifest.json')
