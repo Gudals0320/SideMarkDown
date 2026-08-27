@@ -31,6 +31,7 @@
   --type-list-indent: 1.45em;
   --type-list-nested-indent: 1.25em;
   --type-inline-code-padding: 0.12em 0.32em;
+  --type-body-word-spacing-narrow: 0.15em;
   --type-h1-margin: 28px 0 16px;
   --type-h2-margin: 26px 0 10px;
   --type-h3-margin: 22px 0 8px;
@@ -64,6 +65,7 @@
   --motion-easing: ease-out;
   --motion-press-offset: 1px;
   --component-library-card-min-inline: 260px;
+  --component-scrollbar-size: 6px;
   --color-canvas: #F2F0EB;
   --color-surface: #F8F7F3;
   --color-editor-surface: #FFFDF8;
@@ -270,6 +272,23 @@ button:disabled {
   min-height: 0;
   min-width: 0;
   overflow: auto;
+}
+
+#editor::-webkit-scrollbar {
+  width: var(--component-scrollbar-size);
+}
+
+#editor::-webkit-scrollbar-track {
+  background: var(--color-surface-subtle);
+}
+
+#editor::-webkit-scrollbar-thumb {
+  border-radius: var(--radius-control);
+  background: var(--color-border-strong);
+}
+
+#editor::-webkit-scrollbar-thumb:hover {
+  background: var(--color-accent);
 }
 
 #status {
@@ -487,8 +506,17 @@ a {
   }
 
   .toolbar-actions {
-    gap: var(--space-2);
-    padding-inline: var(--space-3);
+    gap: var(--space-1);
+    padding-inline: var(--space-2);
+  }
+
+  .copy-actions,
+  .document-actions {
+    gap: var(--space-1);
+  }
+
+  .toolbar-actions:has(#save-draft:not([hidden])) button {
+    padding-inline: 0;
   }
 
   .toolbar-actions:has(#save-document:not([hidden])) .copy-actions,
@@ -546,6 +574,7 @@ a {
 @media (max-width: 420px) {
   .ProseMirror {
     padding: var(--space-5) var(--space-4) var(--space-10);
+    word-spacing: var(--type-body-word-spacing-narrow);
   }
 }
 
@@ -556,6 +585,11 @@ a {
 
 .ProseMirror p {
   margin: 0 0 var(--space-3);
+}
+
+.ProseMirror code,
+.ProseMirror pre {
+  word-spacing: normal;
 }
 
 .ProseMirror h1,

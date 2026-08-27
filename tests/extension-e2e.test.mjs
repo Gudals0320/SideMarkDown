@@ -379,6 +379,7 @@ describe('unpacked SideMarkDown extension', { concurrency: false }, () => {
             textDecorationLine: computed.textDecorationLine,
             textUnderlineOffset: computed.textUnderlineOffset,
             whiteSpace: computed.whiteSpace,
+            wordSpacing: computed.wordSpacing,
           }
         }
         const editor = document.querySelector('.ProseMirror')
@@ -479,6 +480,7 @@ describe('unpacked SideMarkDown extension', { concurrency: false }, () => {
       assert.equal(styles.editor.fontSize, '15px')
       assert.equal(styles.editor.lineHeight, '25.8px')
       assert.equal(styles.editor.overflowWrap, 'anywhere')
+      assert.equal(styles.editor.wordSpacing, '2.25px')
       assert.equal(styles.strong.fontWeight, '700')
       assert.equal(styles.emphasis.fontStyle, 'italic')
       assert.equal(styles.link.textDecorationLine, 'underline')
@@ -486,10 +488,12 @@ describe('unpacked SideMarkDown extension', { concurrency: false }, () => {
       assert.equal(styles.quote.borderLeftWidth, '3px')
       assert.equal(styles.rule.borderTopWidth, '1px')
       assert.equal(styles.inlineCode.borderRadius, '4px')
+      assert.equal(styles.inlineCode.wordSpacing, '0px')
       assert.equal(styles.fencedCode.padding, '14px 16px')
       assert.equal(styles.fencedCode.borderRadius, '6px')
       assert.equal(styles.fencedCode.overflowX, 'auto')
       assert.equal(styles.fencedCode.whiteSpace, 'pre')
+      assert.equal(styles.fencedCode.wordSpacing, '0px')
       assert.equal(styles.image.maxWidth, '100%')
       assert.equal(styles.image.outlineWidth, '2px')
       assert.equal(styles.image.outlineStyle, 'solid')
@@ -504,6 +508,7 @@ describe('unpacked SideMarkDown extension', { concurrency: false }, () => {
       assert.ok(imageBefore && imageAfter)
       assert.deepEqual(imageAfter, imageBefore)
       assert.deepEqual(state.errors, [])
+      await screenshot(page, 'repair-commonmark-375x900.png')
     } finally {
       await page.evaluate(
         ({ key, markdown }) => chrome.storage.session.set({ [key]: markdown }),
@@ -829,6 +834,278 @@ describe('unpacked SideMarkDown extension', { concurrency: false }, () => {
     await page.setViewportSize({ width: 375, height: 900 })
   })
 
+  test('keeps draft actions on one row and saved actions on exactly two rows at 375px', async () => {
+    // Given: the real unpacked extension is in draft mode with every action visible.
+    const page = state.page
+    const savedDocument = {
+      id: '88888888-8888-4888-8888-888888888888',
+      markdown: '# Toolbar geometry\n\nA saved document.',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const expectedDraft = [
+      { selector: '#copy', label: 'Copy MD', hasIcon: true },
+      { selector: '#copy-compact', label: 'Copy compact', hasIcon: true },
+      { selector: '#clear', label: 'Clear', hasIcon: true },
+      { selector: '#save-draft', label: 'Save to Library', hasIcon: false },
+    ]
+    const expectedSaved = [
+      { selector: '#copy', label: 'Copy MD', hasIcon: true },
+      { selector: '#copy-compact', label: 'Copy compact', hasIcon: true },
+      { selector: '#save-document', label: 'Save changes', hasIcon: false },
+      { selector: '#cancel-document', label: 'Cancel', hasIcon: false },
+      { selector: '#delete-document', label: 'Delete', hasIcon: true },
+    ]
+    const observations = { draft: [], saved: [] }
+    const measureToolbar = (expected) => page.evaluate((expectedControls) => {
+      const toolbar = document.querySelector('#editor-actions')
+      const toolbarRect = toolbar.getBoundingClientRect()
+      const controls = expectedControls.map(({ selector, label, hasIcon }) => {
+        const button = document.querySelector(selector)
+        const rect = button.getBoundingClientRect()
+        const icon = button.querySelector('svg')
+        const iconRect = icon?.getBoundingClientRect()
+        return {
+          selector,
+          label,
+          hasIcon,
+          text: button.textContent.replace(/\s+/g, ' ').trim(),
+          accessibleName: button.getAttribute('aria-label') ?? button.textContent.replace(/\s+/g, ' ').trim(),
+          clipped: button.scrollWidth > button.clientWidth || button.scrollHeight > button.clientHeight,
+          rect: { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom, width: rect.width, height: rect.height },
+          icon: iconRect ? { width: iconRect.width, height: iconRect.height } : null,
+        }
+      })
+      const overlaps = controls.flatMap((control, index) => controls.slice(index + 1).flatMap((other) => (
+        control.rect.left < other.rect.right && control.rect.right > other.rect.left
+          && control.rect.top < other.rect.bottom && control.rect.bottom > other.rect.top
+          ? [[control.selector, other.selector]]
+          : []
+      )))
+      return {
+        bodyFits: document.body.scrollWidth <= document.body.clientWidth,
+        toolbarFits: toolbar.scrollWidth <= toolbar.clientWidth,
+        toolbar: { left: toolbarRect.left, right: toolbarRect.right, top: toolbarRect.top, bottom: toolbarRect.bottom },
+        controls,
+        overlaps,
+        rows: [...new Set(controls.map((control) => Math.round(control.rect.top)))],
+      }
+    }, expected)
+
+    await page.evaluate(
+      ({ sessionKey, localKey }) => Promise.all([
+        chrome.storage.session.set({ [sessionKey]: '# Draft toolbar' }),
+        chrome.storage.local.set({ [localKey]: [] }),
+      ]),
+      { sessionKey: draftKey, localKey: 'miniMdLibrary' },
+    )
+    await page.reload()
+    await page.locator('.ProseMirror').waitFor()
+
+    for (const width of [375, 768, 1280]) {
+      // When: draft actions are rendered at a supported viewport width.
+      await page.setViewportSize({ width, height: 900 })
+      const geometry = await measureToolbar(expectedDraft)
+      observations.draft.push({ width, geometry })
+
+      // Then: all complete actions remain one non-overlapping row inside the toolbar.
+      assert.equal(geometry.rows.length, 1, `draft toolbar must use one row at ${width}px: ${JSON.stringify(geometry.controls)}`)
+      assert.equal(geometry.bodyFits, true, `draft toolbar widens the body at ${width}px`)
+      assert.equal(geometry.toolbarFits, true, `draft toolbar scrolls at ${width}px`)
+      assert.deepEqual(geometry.overlaps, [], `draft toolbar controls overlap at ${width}px`)
+      for (const control of geometry.controls) {
+        assert.equal(control.text, control.label, `${control.selector} visible label is incomplete`)
+        assert.equal(control.accessibleName, control.label, `${control.selector} accessible name changed`)
+        assert.equal(control.clipped, false, `${control.selector} label or icon is clipped`)
+        assert.equal(Boolean(control.icon), control.hasIcon, `${control.selector} icon presence changed`)
+        if (control.icon) assert.deepEqual(control.icon, { width: 16, height: 16 }, `${control.selector} icon geometry changed`)
+        assert.ok(control.rect.height >= 36, `${control.selector} is shorter than 36px`)
+        assert.ok(control.rect.left >= geometry.toolbar.left && control.rect.right <= geometry.toolbar.right, `${control.selector} escapes the toolbar`)
+        assert.ok(control.rect.top >= geometry.toolbar.top && control.rect.bottom <= geometry.toolbar.bottom, `${control.selector} escapes the toolbar vertically`)
+      }
+    }
+
+    await page.evaluate(
+      ({ sessionKey, localKey, document }) => Promise.all([
+        chrome.storage.session.set({ [sessionKey]: '# Draft toolbar' }),
+        chrome.storage.local.set({ [localKey]: [document] }),
+      ]),
+      { sessionKey: draftKey, localKey: 'miniMdLibrary', document: savedDocument },
+    )
+    await page.reload()
+    await page.locator('.ProseMirror').waitFor()
+    await page.locator('#tab-library').click()
+    await page.locator('.library-card-edit').click()
+
+    for (const width of [375, 768, 1280]) {
+      // When: saved-document actions are rendered at a supported viewport width.
+      await page.setViewportSize({ width, height: 900 })
+      const geometry = await measureToolbar(expectedSaved)
+      observations.saved.push({ width, geometry })
+
+      // Then: 375px uses the prescribed two rows; wider widths use one row.
+      assert.equal(geometry.rows.length, width === 375 ? 2 : 1, `saved toolbar row count is wrong at ${width}px`)
+      if (width === 375) {
+        assert.equal(Math.round(geometry.controls[0].rect.top), Math.round(geometry.controls[1].rect.top), 'copy actions must share the first saved row')
+        assert.ok(geometry.controls.slice(2).every((control) => Math.round(control.rect.top) === geometry.rows[1]), 'document actions must share the second saved row')
+        assert.ok(geometry.rows[0] < geometry.rows[1], 'copy actions must precede document actions')
+      }
+      assert.equal(geometry.bodyFits, true, `saved toolbar widens the body at ${width}px`)
+      assert.equal(geometry.toolbarFits, true, `saved toolbar scrolls at ${width}px`)
+      assert.deepEqual(geometry.overlaps, [], `saved toolbar controls overlap at ${width}px`)
+      for (const control of geometry.controls) {
+        assert.equal(control.text, control.label, `${control.selector} visible label is incomplete`)
+        assert.equal(control.accessibleName, control.label, `${control.selector} accessible name changed`)
+        assert.equal(control.clipped, false, `${control.selector} label or icon is clipped`)
+        assert.equal(Boolean(control.icon), control.hasIcon, `${control.selector} icon presence changed`)
+        assert.ok(control.rect.height >= 36, `${control.selector} is shorter than 36px`)
+        assert.ok(control.rect.left >= geometry.toolbar.left && control.rect.right <= geometry.toolbar.right, `${control.selector} escapes the toolbar`)
+      }
+    }
+    state.manual.toolbarRepair = observations
+  })
+
+  test('avoids a lone Korean word at line end while preserving CJK and long-token containment', async () => {
+    // Given: draft and saved modes contain the same Korean/Japanese/Chinese and unbroken-token stress text.
+    const page = state.page
+    const stressMarkdown = `${'긴 문장과 CJK 콘텐츠 '.repeat(28)}\n\n日本語の長い文章と中文内容用于换行检查。\n\nhttps://example.test/${'unbroken-token-'.repeat(90)}`
+    const savedDocument = {
+      id: '99999999-9999-4999-8999-999999999999',
+      markdown: stressMarkdown,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const modes = [
+      { name: 'draft', library: [], edit: false },
+      { name: 'saved', library: [savedDocument], edit: true },
+    ]
+    const observations = []
+
+    for (const mode of modes) {
+      await page.evaluate(
+        ({ sessionKey, localKey, markdown, library }) => Promise.all([
+          chrome.storage.session.set({ [sessionKey]: markdown }),
+          chrome.storage.local.set({ [localKey]: library }),
+        ]),
+        { sessionKey: draftKey, localKey: 'miniMdLibrary', markdown: stressMarkdown, library: mode.library },
+      )
+      await page.reload()
+      await page.locator('.ProseMirror').waitFor()
+      if (mode.edit) {
+        await page.locator('#tab-library').click()
+        await page.locator('.library-card-edit').click()
+      }
+      await page.waitForFunction(() => [...document.querySelectorAll('#editor-actions button:not([hidden])')].every((button) => !button.disabled))
+
+      for (const colorScheme of ['light', 'dark']) {
+        // When: the exact 375px stress paragraph is laid out by Chromium.
+        await page.emulateMedia({ colorScheme })
+        await page.setViewportSize({ width: 375, height: 900 })
+        await page.waitForFunction(
+          (expectedColor) => getComputedStyle(document.querySelector('#copy')).color === expectedColor,
+          colorScheme === 'light' ? expectedSemanticColors.light.ink : expectedSemanticColors.dark.ink,
+        )
+        await page.locator('#editor').evaluate((editor) => { editor.scrollTop = 0 })
+        const geometry = await page.locator('.ProseMirror').evaluate((editor) => {
+          const phrase = '긴 문장과'
+          const textNodes = []
+          const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT)
+          let node = walker.nextNode()
+          while (node) {
+            textNodes.push(node)
+            node = walker.nextNode()
+          }
+          const occurrences = textNodes.flatMap((textNode) => {
+            const results = []
+            let offset = textNode.textContent.indexOf(phrase)
+            while (offset >= 0) {
+              const first = document.createRange()
+              first.setStart(textNode, offset)
+              first.setEnd(textNode, offset + 1)
+              const following = document.createRange()
+              following.setStart(textNode, offset + 2)
+              following.setEnd(textNode, offset + phrase.length)
+              const firstRect = first.getBoundingClientRect()
+              const followingRect = following.getBoundingClientRect()
+              results.push({
+                first: { left: firstRect.left, right: firstRect.right, top: firstRect.top, bottom: firstRect.bottom },
+                following: { left: followingRect.left, right: followingRect.right, top: followingRect.top, bottom: followingRect.bottom },
+                split: Math.abs(firstRect.top - followingRect.top) > 1,
+              })
+              offset = textNode.textContent.indexOf(phrase, offset + phrase.length)
+            }
+            return results
+          })
+          const japanese = [...editor.querySelectorAll('p')].find((paragraph) => paragraph.textContent.includes('日本語'))
+          const chinese = [...editor.querySelectorAll('p')].find((paragraph) => paragraph.textContent.includes('中文内容'))
+          const longToken = [...editor.querySelectorAll('p')].find((paragraph) => paragraph.textContent.includes('unbroken-token-'))
+          const scrollOwner = document.querySelector('#editor')
+          const scrollOwnerStyle = getComputedStyle(scrollOwner)
+          const scrollbarStyle = getComputedStyle(scrollOwner, '::-webkit-scrollbar')
+          const scrollbarTrackStyle = getComputedStyle(scrollOwner, '::-webkit-scrollbar-track')
+          const scrollbarThumbStyle = getComputedStyle(scrollOwner, '::-webkit-scrollbar-thumb')
+          return {
+            bodyFits: document.body.scrollWidth <= document.body.clientWidth,
+            editorFits: editor.scrollWidth <= editor.clientWidth,
+            scrollOwner: {
+              offsetWidth: scrollOwner.offsetWidth,
+              clientWidth: scrollOwner.clientWidth,
+              scrollbarConsumption: scrollOwner.offsetWidth - scrollOwner.clientWidth,
+              scrollbarWidth: scrollOwnerStyle.scrollbarWidth,
+              renderedWidth: scrollbarStyle.width,
+              trackBackground: scrollbarTrackStyle.backgroundColor,
+              thumbBackground: scrollbarThumbStyle.backgroundColor,
+            },
+            wordBreak: getComputedStyle(editor).wordBreak,
+            lineBreak: getComputedStyle(editor).lineBreak,
+            wordSpacing: getComputedStyle(editor).wordSpacing,
+            rootLanguage: document.documentElement.lang,
+            occurrences,
+            japaneseFits: japanese.scrollWidth <= japanese.clientWidth,
+            chineseFits: chinese.scrollWidth <= chinese.clientWidth,
+            longTokenFits: longToken.scrollWidth <= longToken.clientWidth,
+          }
+        })
+        observations.push({ mode: mode.name, colorScheme, geometry })
+
+        // Then: no occurrence leaves `긴` alone at line end, and every stress language remains contained.
+        assert.equal(geometry.occurrences.length, 28)
+        assert.deepEqual(geometry.occurrences.filter((occurrence) => occurrence.split), [], `${mode.name} ${colorScheme} splits 긴 from the following 문장과: ${JSON.stringify(geometry)}`)
+        assert.equal(geometry.bodyFits, true, `${mode.name} ${colorScheme} CJK stress widens the body`)
+        assert.equal(geometry.editorFits, true, `${mode.name} ${colorScheme} CJK stress widens the editor`)
+        assert.equal(geometry.japaneseFits, true, `${mode.name} ${colorScheme} Japanese text overflows`)
+        assert.equal(geometry.chineseFits, true, `${mode.name} ${colorScheme} Chinese text overflows`)
+        assert.equal(geometry.longTokenFits, true, `${mode.name} ${colorScheme} long token overflows`)
+        assert.equal(geometry.scrollOwner.scrollbarConsumption, 6, `${mode.name} ${colorScheme} editor scrollbar consumes the wrong width`)
+        assert.equal(geometry.scrollOwner.renderedWidth, '6px', `${mode.name} ${colorScheme} editor scrollbar token is not rendered`)
+        assert.notEqual(geometry.scrollOwner.trackBackground, 'rgba(0, 0, 0, 0)', `${mode.name} ${colorScheme} scrollbar track is invisible`)
+        assert.notEqual(geometry.scrollOwner.thumbBackground, 'rgba(0, 0, 0, 0)', `${mode.name} ${colorScheme} scrollbar thumb is invisible`)
+        assert.notEqual(geometry.scrollOwner.thumbBackground, geometry.scrollOwner.trackBackground, `${mode.name} ${colorScheme} scrollbar thumb lacks contrast from its track`)
+        assert.equal(geometry.wordBreak, 'keep-all', `${mode.name} ${colorScheme} must preserve complete CJK words`)
+        assert.equal(geometry.wordSpacing, '2.25px', `${mode.name} ${colorScheme} must use the narrow semantic word spacing`)
+        await screenshot(page, `repair-${mode.name}-${colorScheme}-375x900.png`)
+      }
+
+      if (mode.name === 'draft') {
+        // When: keyboard and trackpad/wheel input scroll the same internal editor owner.
+        await page.evaluate(() => { document.querySelector('#editor').scrollTop = 0 })
+        await page.locator('.ProseMirror').focus()
+        await page.keyboard.press('PageDown')
+        await page.waitForFunction(() => document.querySelector('#editor').scrollTop > 0)
+        const keyboardScrollTop = await page.locator('#editor').evaluate((editor) => editor.scrollTop)
+        await page.locator('#editor').evaluate((editor) => { editor.scrollTop = 0 })
+        await page.locator('#editor').hover()
+        await page.mouse.wheel(0, 240)
+        await page.waitForFunction(() => document.querySelector('#editor').scrollTop > 0)
+        const wheelScrollTop = await page.locator('#editor').evaluate((editor) => editor.scrollTop)
+        assert.ok(keyboardScrollTop > 0, 'PageDown must scroll the internal editor owner')
+        assert.ok(wheelScrollTop > 0, 'trackpad or wheel input must scroll the internal editor owner')
+        state.manual.editorScrollInputs = { keyboardScrollTop, wheelScrollTop }
+      }
+    }
+    state.manual.cjkPhraseRepair = observations
+  })
+
   test('keeps the responsive accessibility matrix operable across views and adaptive preferences', async () => {
     // Given: the real unpacked extension is seeded with empty, stressed, and saved-document states.
     const page = state.page
@@ -889,7 +1166,7 @@ describe('unpacked SideMarkDown extension', { concurrency: false }, () => {
             const milkdown = document.querySelector('.milkdown')
             const paper = document.querySelector('.ProseMirror')
             const cjkPhrase = '편집기에는'
-            const cjkPhraseRectCount = (() => {
+            const cjkPhraseRects = (() => {
               const walker = document.createTreeWalker(document.querySelector('.ProseMirror'), NodeFilter.SHOW_TEXT)
               let textNode = walker.nextNode()
               while (textNode) {
@@ -898,11 +1175,11 @@ describe('unpacked SideMarkDown extension', { concurrency: false }, () => {
                   const range = document.createRange()
                   range.setStart(textNode, offset)
                   range.setEnd(textNode, offset + cjkPhrase.length)
-                  return range.getClientRects().length
+                  return [...range.getClientRects()].map((rangeRect) => rect({ getBoundingClientRect: () => rangeRect }))
                 }
                 textNode = walker.nextNode()
               }
-              return 0
+              return []
             })()
             return {
               bodyFits: document.body.scrollWidth <= document.body.clientWidth,
@@ -921,7 +1198,7 @@ describe('unpacked SideMarkDown extension', { concurrency: false }, () => {
               },
               controls: visibleControls,
               contentFits: [...document.querySelectorAll('.ProseMirror, .library-card')].every((element) => element.scrollWidth <= element.clientWidth),
-              cjkPhraseRectCount,
+              cjkPhraseRects,
             }
           })
           observations.push({ state: matrixState.name, colorScheme, width, geometry })
@@ -934,7 +1211,9 @@ describe('unpacked SideMarkDown extension', { concurrency: false }, () => {
           assert.equal(geometry.statusText, '', 'normal matrix captures must remain idle without injected status text')
           assert.equal(geometry.controlsReady, true, 'normal matrix captures must wait for enabled controls')
           assert.equal(geometry.contentFits, true, 'editor and Library card content must not overflow their owners')
-          if (matrixState.name === 'editor-content' && width === 375) assert.equal(geometry.cjkPhraseRectCount, 1, `${colorScheme} CJK noun-and-particle phrase must stay on one line`)
+          if (matrixState.name === 'editor-content' && width === 375) {
+            assert.equal(geometry.cjkPhraseRects.length, 1, `${colorScheme} CJK noun-and-particle phrase must stay on one line: ${JSON.stringify(geometry.cjkPhraseRects)}`)
+          }
           if (matrixState.name === 'editor-empty') {
             assert.ok(geometry.emptyPaper.milkdownBottom >= geometry.emptyPaper.editorBottom - 1, `${colorScheme} Milkdown must fill the empty editor scrollport at ${width}px`)
             assert.ok(geometry.emptyPaper.paperBottom >= geometry.emptyPaper.editorBottom - 1, `${colorScheme} paper background must fill the empty editor scrollport at ${width}px`)

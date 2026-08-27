@@ -47,7 +47,7 @@ All foreground/background contexts below were checked with the WCAG relative-lum
 
 ### Scale
 
-The CJK-safe primary stack is `system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", "Noto Sans CJK KR", sans-serif`; the local mono stack is `"Cascadia Mono", Consolas, "Liberation Mono", monospace`. The default body is **15px/1.72** and never becomes smaller for headings H4-H6.
+The CJK-safe primary stack is `system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", "Noto Sans CJK KR", sans-serif`; the local mono stack is `"Cascadia Mono", Consolas, "Liberation Mono", monospace`. The default body is **15px/1.72** and never becomes smaller for headings H4-H6. At 420px and below, body word spacing is `0.15em`; this narrow-only spacing keeps short semantic CJK words from being stranded at line ends without changing letter tracking, font size, Markdown, or the 16px paper padding. Inline and fenced code retain normal word spacing.
 
 | Level | Size / line height | Weight | Tracking | Usage |
 | --- | --- | --- | --- | --- |
