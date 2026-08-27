@@ -1,5 +1,15 @@
 :root {
   color-scheme: light dark;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
   --color-canvas: #F2F0EB;
   --color-surface: #F8F7F3;
   --color-editor-surface: #FFFDF8;
@@ -242,19 +252,29 @@ button:disabled {
 }
 
 .library-card {
-  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 36px;
+  align-items: start;
+  gap: var(--space-2);
   min-width: 0;
-  overflow: hidden;
+  padding: var(--space-3);
   border: 1px solid var(--color-border);
   border-radius: 10px;
   background: var(--color-editor-surface);
 }
 
 .library-card-copy {
-  display: block;
+  display: grid;
+  grid-template-areas:
+    "title action"
+    "metadata action"
+    "preview preview";
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-1) var(--space-3);
+  align-items: start;
   width: 100%;
   min-height: 112px;
-  padding: 14px 42px 14px 14px;
+  padding: 0;
   border: 0;
   border-radius: 0;
   background: transparent;
@@ -273,14 +293,20 @@ button:disabled {
 }
 
 .library-card-title {
-  margin-bottom: 8px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  grid-area: title;
   font-size: 14px;
   font-weight: 700;
 }
 
+.library-card-metadata {
+  grid-area: metadata;
+  color: var(--color-ink-faint);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .library-card-preview {
+  grid-area: preview;
   display: -webkit-box;
   color: var(--color-ink-muted);
   font-size: 13px;
@@ -290,22 +316,38 @@ button:disabled {
   -webkit-line-clamp: 4;
 }
 
+.library-card-copy-action {
+  grid-area: action;
+  display: inline-flex;
+  min-width: 36px;
+  min-height: 36px;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--color-border-strong);
+  border-radius: 8px;
+  color: var(--color-ink);
+  font-weight: 600;
+}
+
+.library-card-copy-action svg {
+  flex: none;
+}
+
 .library-card-preview:empty::before {
   content: "Empty document";
   font-style: italic;
 }
 
 .library-card-edit {
-  position: absolute;
-  top: 8px;
-  right: 8px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  min-height: 32px;
+  width: 36px;
+  min-height: 36px;
   padding: 0;
-  opacity: 0.72;
+  opacity: 1;
   transition: transform 120ms ease-out, opacity 120ms ease-out, color 120ms ease-out;
 }
 
@@ -324,10 +366,17 @@ button:disabled {
 }
 
 .empty-state {
+  display: grid;
+  justify-items: center;
+  gap: var(--space-3);
   margin: 40px auto;
   color: var(--color-ink-muted);
   font-size: 13px;
   text-align: center;
+}
+
+.empty-state p {
+  margin: 0;
 }
 
 .danger-button {

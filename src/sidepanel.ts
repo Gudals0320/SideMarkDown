@@ -16,6 +16,7 @@ import { inlineCodeCleanupPlugin } from './inline-code-cleanup'
 import {
   createLibraryDocument,
   deleteLibraryDocument,
+  formatLibraryUpdatedAt,
   getLibraryCardContent,
   libraryDocumentIdSchema,
   parseLibraryDocuments,
@@ -81,6 +82,9 @@ const deleteDocumentButton =
 const editorModeIndicator = requireElement<HTMLElement>('#editor-mode')
 const libraryList = requireElement<HTMLElement>('#library-list')
 const libraryEmpty = requireElement<HTMLElement>('#library-empty')
+const libraryEmptyGoToEditor = requireElement<HTMLButtonElement>(
+  '#library-empty-go-to-editor',
+)
 const status = requireElement<HTMLElement>('#status')
 
 type EditorMode =
@@ -332,6 +336,30 @@ const createEditIcon = (): SVGSVGElement => {
   return icon
 }
 
+const createCopyIcon = (): SVGSVGElement => {
+  const namespace = 'http://www.w3.org/2000/svg'
+  const icon = document.createElementNS(namespace, 'svg')
+  icon.setAttribute('width', '16')
+  icon.setAttribute('height', '16')
+  icon.setAttribute('viewBox', '0 0 16 16')
+  icon.setAttribute('fill', 'none')
+  icon.setAttribute('stroke', 'currentColor')
+  icon.setAttribute('stroke-width', '1.75')
+  icon.setAttribute('stroke-linecap', 'round')
+  icon.setAttribute('stroke-linejoin', 'round')
+  icon.setAttribute('aria-hidden', 'true')
+  const front = document.createElementNS(namespace, 'rect')
+  front.setAttribute('x', '5.25')
+  front.setAttribute('y', '2.25')
+  front.setAttribute('width', '7')
+  front.setAttribute('height', '8')
+  front.setAttribute('rx', '1')
+  const back = document.createElementNS(namespace, 'path')
+  back.setAttribute('d', 'M3.75 5.75h-1a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1v-1')
+  icon.append(front, back)
+  return icon
+}
+
 function renderLibrary() {
   libraryList.replaceChildren()
   libraryEmpty.hidden = libraryDocuments.length > 0
@@ -357,10 +385,23 @@ function renderLibrary() {
       copy.appendChild(title)
     }
 
+    const metadata = document.createElement('time')
+    const formattedUpdatedAt = formatLibraryUpdatedAt(libraryDocument.updatedAt)
+    metadata.className = 'library-card-metadata'
+    metadata.dateTime = new Date(libraryDocument.updatedAt).toISOString()
+    metadata.setAttribute('aria-label', `Updated ${formattedUpdatedAt}`)
+    metadata.textContent = `Updated ${formattedUpdatedAt}`
+    copy.appendChild(metadata)
+
     const preview = document.createElement('p')
     preview.className = 'library-card-preview'
     preview.textContent = content.preview
     copy.appendChild(preview)
+
+    const copyAction = document.createElement('span')
+    copyAction.className = 'library-card-copy-action'
+    copyAction.append(createCopyIcon(), document.createTextNode('Copy'))
+    copy.appendChild(copyAction)
     copy.addEventListener('click', () => {
       void writeClipboard(libraryDocument.markdown)
         .then(() => setStatus('Copied'))
@@ -516,6 +557,11 @@ for (const tab of [editorTab, libraryTab]) {
 
 editorTab.addEventListener('click', () => {
   setPanelView('editor')
+})
+
+libraryEmptyGoToEditor.addEventListener('click', () => {
+  setPanelView('editor')
+  editorRoot.querySelector<HTMLElement>('.ProseMirror')?.focus()
 })
 
 libraryTab.addEventListener('click', () => {

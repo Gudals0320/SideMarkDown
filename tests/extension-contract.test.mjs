@@ -477,8 +477,52 @@ test('compact shell keeps named action groups, visible labels, and project-owned
   assert.match(sidepanel, /icon\.setAttribute\('width', '16'\)/)
   assert.match(sidepanel, /icon\.setAttribute\('stroke-width', '1\.75'\)/)
   assert.match(css, /#status[\s\S]*overflow: hidden;[\s\S]*text-overflow: ellipsis;[\s\S]*white-space: nowrap;/)
-  assert.match(css, /\.library-card-edit[\s\S]*opacity: 0\.72;/)
+  assert.match(css, /\.library-card-edit[\s\S]*width: 36px;[\s\S]*min-height: 36px;[\s\S]*opacity: 1;/)
   assert.match(css, /\.copy-actions[\s\S]*\.document-actions/)
+})
+
+test('Library cards expose stable absolute metadata and a durable empty-state recovery action', () => {
+  const html = readText('sidepanel.html')
+  const library = readText('src', 'library.ts')
+  const sidepanel = readText('src', 'sidepanel.ts')
+  const css = readText('src', 'styles.css')
+
+  assert.match(html, /id="library-empty"[\s\S]*Save a draft to build your local Library\.[\s\S]*id="library-empty-go-to-editor"[\s\S]*Go to Editor/s)
+  assert.match(library, /const libraryUpdatedDateFormatter = new Intl\.DateTimeFormat\('en-US', \{[\s\S]*year: 'numeric',[\s\S]*month: 'short',[\s\S]*day: 'numeric',/)
+  assert.match(library, /formatLibraryUpdatedAt[\s\S]*libraryUpdatedDateFormatter\.format\(new Date\(updatedAt\)\)/)
+  assert.doesNotMatch(sidepanel, /setInterval\(/)
+  assert.match(sidepanel, /metadata\.dateTime = new Date\(libraryDocument\.updatedAt\)\.toISOString\(\)/)
+  assert.match(sidepanel, /metadata\.setAttribute\('aria-label', `Updated \$\{formattedUpdatedAt\}`\)/)
+  assert.match(sidepanel, /copyAction\.append\(createCopyIcon\(\), document\.createTextNode\('Copy'\)\)/)
+  assert.match(sidepanel, /libraryEmptyGoToEditor\.addEventListener\('click', \(\) => \{[\s\S]*setPanelView\('editor'\)[\s\S]*ProseMirror/)
+  assert.match(css, /\.library-card-copy-action[\s\S]*min-width: 36px;[\s\S]*min-height: 36px;/)
+})
+
+test('declares the complete Quiet Paper spacing scale exactly once before Library cards consume it', () => {
+  const css = readText('src', 'styles.css')
+  const expectedTokens = {
+    '--space-1': '4px',
+    '--space-2': '8px',
+    '--space-3': '12px',
+    '--space-4': '16px',
+    '--space-5': '20px',
+    '--space-6': '24px',
+    '--space-8': '32px',
+    '--space-10': '40px',
+    '--space-12': '48px',
+    '--space-16': '64px',
+  }
+
+  for (const [token, value] of Object.entries(expectedTokens)) {
+    assert.equal(
+      (css.match(new RegExp(`${token}: ${value};`, 'g')) ?? []).length,
+      1,
+      `${token} must be declared exactly once with its DESIGN.md value`,
+    )
+  }
+  assert.match(css, /\.library-card[\s\S]*gap: var\(--space-2\);[\s\S]*padding: var\(--space-3\);/)
+  assert.match(css, /\.library-card-copy[\s\S]*gap: var\(--space-1\) var\(--space-3\);/)
+  assert.match(css, /\.library-card-copy-action[\s\S]*gap: var\(--space-1\);[\s\S]*padding: var\(--space-1\) var\(--space-2\);/)
 })
 
 test('built extension artifacts are load-unpacked compatible and local-only', () => {

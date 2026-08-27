@@ -49,7 +49,10 @@
       aria-labelledby="tab-library"
       hidden
     >
-      <p id="library-empty" class="empty-state">No saved documents yet.</p>
+      <div id="library-empty" class="empty-state">
+        <p>Save a draft to build your local Library.</p>
+        <button id="library-empty-go-to-editor" type="button">Go to Editor</button>
+      </div>
       <div id="library-list" class="library-list"></div>
     </section>
     <script type="module" src="/src/sidepanel.ts"></script>

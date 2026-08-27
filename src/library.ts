@@ -12,9 +12,17 @@ export const libraryDocumentSchema = z
   .strict()
 
 const libraryDocumentsSchema = z.array(libraryDocumentSchema)
+const libraryUpdatedDateFormatter = new Intl.DateTimeFormat('en-US', {
+  year: 'numeric',
+  month: 'short',
+  day: 'numeric',
+})
 
 export type LibraryDocumentId = z.infer<typeof libraryDocumentIdSchema>
 export type LibraryDocument = z.infer<typeof libraryDocumentSchema>
+
+export const formatLibraryUpdatedAt = (updatedAt: number): string =>
+  libraryUpdatedDateFormatter.format(new Date(updatedAt))
 
 export type LibraryCardContent = {
   readonly title: string | null

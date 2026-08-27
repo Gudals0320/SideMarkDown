@@ -76,6 +76,20 @@ test('derives card title and preview from the first Markdown line', async () => 
   assert.deepEqual(getLibraryCardContent(''), { title: null, preview: '' })
 })
 
+test('formats Library metadata as a stable absolute English date', async () => {
+  // Given
+  const { formatLibraryUpdatedAt } = await importLibraryModule()
+  const updatedAt = Date.UTC(2026, 7, 25, 12)
+
+  // When / Then
+  assert.equal(formatLibraryUpdatedAt(updatedAt), 'Aug 25, 2026')
+  assert.equal(
+    formatLibraryUpdatedAt(updatedAt),
+    formatLibraryUpdatedAt(updatedAt + 60 * 60 * 1_000),
+    'metadata must be a date, not a relative clock-derived phrase',
+  )
+})
+
 test('creates a new document for every draft save, including duplicate Markdown', async () => {
   // Given
   const { createLibraryDocument } = await importLibraryModule()

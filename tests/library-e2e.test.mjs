@@ -27,6 +27,7 @@ const launchExtension = async (profile) => {
   const context = await chromium.launchPersistentContext(profile, {
     headless: false,
     viewport: { width: 375, height: 900 },
+    timezoneId: 'UTC',
     args: [`--disable-extensions-except=${dist}`, `--load-extension=${dist}`],
   })
   const worker = context.serviceWorkers()[0] ?? await context.waitForEvent('serviceworker')
@@ -260,16 +261,20 @@ describe('persistent prompt Library', { concurrency: false }, () => {
       await firstCard.locator('.library-card-preview').textContent(),
       /^Untitled first line/,
     )
-    assert.deepEqual(
-      await state.page.locator('.library-card').evaluateAll((cards) =>
-        cards.map((card) => card.textContent?.trim()),
-      ),
-      [
-        'Untitled first line\nUntitled second line',
-        'Saved titleFirst preview line\nSecond preview line',
-        'Saved titleFirst preview line\nSecond preview line',
-      ],
+    const cardContent = await state.page.locator('.library-card').evaluateAll((cards) =>
+      cards.map((card) => ({
+        title: card.querySelector('.library-card-title')?.textContent,
+        metadata: card.querySelector('time')?.textContent,
+        preview: card.querySelector('.library-card-preview')?.textContent,
+        copy: card.querySelector('.library-card-copy-action')?.textContent?.trim(),
+      })),
     )
+    assert.deepEqual(cardContent.map(({ title, preview, copy }) => ({ title, preview, copy })), [
+      { title: undefined, preview: 'Untitled first line\nUntitled second line', copy: 'Copy' },
+      { title: 'Saved title', preview: 'First preview line\nSecond preview line', copy: 'Copy' },
+      { title: 'Saved title', preview: 'First preview line\nSecond preview line', copy: 'Copy' },
+    ])
+    for (const { metadata } of cardContent) assert.match(metadata ?? '', /^Updated [A-Z][a-z]{2} \d{1,2}, \d{4}$/)
     assert.equal(
       (await state.page.evaluate(() => navigator.clipboard.readText())).replace(
         /\r\n?/g,
@@ -482,7 +487,7 @@ describe('persistent prompt Library', { concurrency: false }, () => {
     await state.page.locator('#tab-library').click()
     const edit = state.page.locator('.library-card-edit').first()
     const expectedIdleEditOpacity = await state.page.evaluate(() =>
-      matchMedia('(hover: none)').matches ? '1' : '0.72',
+      '1',
     )
     assert.equal(await edit.evaluate((node) => getComputedStyle(node).opacity), expectedIdleEditOpacity)
     await edit.click()
@@ -812,5 +817,173 @@ describe('persistent prompt Library', { concurrency: false }, () => {
     assert.equal(await page.locator('#status').textContent(), '')
     await page.clock.resume()
 
+  })
+
+  test('renders stable absolute Library metadata and preserves explicit card actions under content stress', async () => {
+    // Given
+    const updatedAt = Date.UTC(2026, 7, 25, 12)
+    const titled = {
+      id: '22222222-2222-4222-8222-222222222222',
+      markdown: '# Exact heading\nBody that must remain in the copied Markdown.',
+      createdAt: updatedAt,
+      updatedAt,
+    }
+    const untitled = {
+      id: '33333333-3333-4333-8333-333333333333',
+      markdown: '제목 없이도 긴 미리보기와 https://example.test/' + 'unbroken/'.repeat(80),
+      createdAt: updatedAt - 1,
+      updatedAt: updatedAt - 1,
+    }
+    await state.page.clock.install({ time: new Date('2026-08-27T00:00:00Z') })
+    await state.page.evaluate(
+      ({ sessionKey, localKey, documents }) => Promise.all([
+        chrome.storage.session.set({ [sessionKey]: '# Preserved session draft' }),
+        chrome.storage.local.set({ [localKey]: documents }),
+      ]),
+      { sessionKey: sessionDraftKey, localKey: libraryKey, documents: [titled, untitled] },
+    )
+    await state.page.reload()
+    await state.page.locator('.ProseMirror').waitFor()
+    await state.page.locator('#tab-library').click()
+    const titledCard = state.page.locator(`[data-document-id="${titled.id}"]`)
+    const untitledCard = state.page.locator(`[data-document-id="${untitled.id}"]`)
+
+    // When / Then: semantic absolute metadata and no fabricated untitled heading.
+    const metadata = titledCard.locator('time')
+    assert.equal(await metadata.textContent(), 'Updated Aug 25, 2026')
+    assert.equal(await metadata.getAttribute('datetime'), '2026-08-25T12:00:00.000Z')
+    assert.equal(await metadata.getAttribute('aria-label'), 'Updated Aug 25, 2026')
+    await state.page.clock.fastForward(86_400_000)
+    assert.equal(await metadata.textContent(), 'Updated Aug 25, 2026')
+    assert.equal(await untitledCard.locator('.library-card-title').count(), 0)
+
+    // Copy retains durable storage/order; Edit must not become a hidden copy operation.
+    const beforeCopy = await getLibrary(state.page)
+    await titledCard.locator('.library-card-copy').click()
+    assert.equal(
+      (await state.page.evaluate(() => navigator.clipboard.readText())).replace(/\r\n?/g, '\n'),
+      titled.markdown,
+    )
+    assert.deepEqual(await getLibrary(state.page), beforeCopy)
+    await state.page.evaluate(() => navigator.clipboard.writeText('__edit_sentinel__'))
+    await titledCard.locator('.library-card-edit').click()
+    assert.equal(await state.page.evaluate(() => navigator.clipboard.readText()), '__edit_sentinel__')
+    await state.page.locator('#cancel-document').click()
+
+    // Controls remain visible, focusable, non-overlapping, and wide enough across the responsive matrix.
+    for (const colorScheme of ['light', 'dark']) {
+      await state.page.emulateMedia({ colorScheme })
+      for (const width of [375, 768, 1280]) {
+        await state.page.setViewportSize({ width, height: 900 })
+        const geometry = await state.page.evaluate(() => {
+          const toRect = (element) => {
+            const { left, right, top, bottom, width, height } = element.getBoundingClientRect()
+            return { left, right, top, bottom, width, height }
+          }
+          const actions = [...document.querySelectorAll('.library-card-copy, .library-card-edit')]
+          .map((element) => ({
+              label: element.getAttribute('aria-label'),
+              rect: toRect(element),
+              visible: getComputedStyle(element).visibility !== 'hidden' && getComputedStyle(element).display !== 'none',
+              disabled: element.disabled,
+              text: element.textContent?.trim(),
+            }))
+          return {
+            bodyFits: document.body.scrollWidth <= document.body.clientWidth,
+            cardsFit: [...document.querySelectorAll('.library-card')].every((card) => card.scrollWidth <= card.clientWidth),
+            actions,
+            spacing: {
+              card: (() => {
+                const style = getComputedStyle(document.querySelector('.library-card'))
+                return { gap: style.gap, padding: style.padding }
+              })(),
+              copy: (() => {
+                const style = getComputedStyle(document.querySelector('.library-card-copy'))
+                return { columnGap: style.columnGap, rowGap: style.rowGap }
+              })(),
+              action: (() => {
+                const style = getComputedStyle(document.querySelector('.library-card-copy-action'))
+                return { gap: style.gap, padding: style.padding }
+              })(),
+            },
+          }
+        })
+        assert.equal(geometry.bodyFits, true)
+        assert.equal(geometry.cardsFit, true)
+        assert.deepEqual(geometry.spacing, {
+          card: { gap: '8px', padding: '12px' },
+          copy: { columnGap: '12px', rowGap: '4px' },
+          action: { gap: '4px', padding: '4px 8px' },
+        })
+        assert.equal(geometry.actions.length, 4)
+        for (const action of geometry.actions) {
+          assert.equal(action.visible, true)
+          assert.equal(action.disabled, false)
+          assert.ok(action.rect.height >= 36, `${action.label} must be at least 36px tall`)
+          assert.ok(action.rect.width >= 36, `${action.label} must be at least 36px wide`)
+        }
+        assert.ok(
+          geometry.actions.filter(({ text }) => text?.includes('Copy')).length >= 2,
+          'each card must expose a persistent visible Copy label',
+        )
+        for (const [index, action] of geometry.actions.entries()) {
+          for (const other of geometry.actions.slice(index + 1)) {
+            const overlaps = action.rect.left < other.rect.right && action.rect.right > other.rect.left && action.rect.top < other.rect.bottom && action.rect.bottom > other.rect.top
+            assert.equal(overlaps, false, `${action.label} overlaps ${other.label}`)
+          }
+        }
+      }
+    }
+
+    // Empty recovery must reuse tab activation, keep the session draft, and focus the writer.
+    await state.page.evaluate((key) => chrome.storage.local.remove(key), libraryKey)
+    await state.page.reload()
+    await state.page.locator('.ProseMirror').waitFor()
+    await state.page.locator('#tab-library').click()
+    assert.equal(
+      await state.page.locator('#library-empty > p').textContent(),
+      'Save a draft to build your local Library.',
+    )
+    await state.page.getByRole('button', { name: 'Go to Editor' }).click()
+    assert.equal(await state.page.locator('#tab-editor').getAttribute('aria-selected'), 'true')
+    assert.equal(await state.page.locator('#tab-editor').getAttribute('tabindex'), '0')
+    assert.equal(await state.page.locator('#tab-library').getAttribute('tabindex'), '-1')
+    assert.equal(await state.page.locator('.ProseMirror').evaluate((node) => document.activeElement === node), true)
+    assert.equal((await getLibrary(state.page)).length, 0)
+    assert.equal(
+      (await state.page.evaluate((key) => chrome.storage.session.get(key), sessionDraftKey))[sessionDraftKey],
+      '# Preserved session draft',
+    )
+    await state.page.clock.resume()
+  })
+
+  test('formats a late-UTC Library update on its UTC calendar day', async () => {
+    // Given: this instant is Aug 26 in the host's Asia/Seoul timezone.
+    const updatedAt = Date.UTC(2026, 7, 25, 20)
+    const boundaryDocument = {
+      id: '66666666-6666-4666-8666-666666666666',
+      markdown: '# UTC boundary\nThe calendar date must remain deterministic.',
+      createdAt: updatedAt,
+      updatedAt,
+    }
+    await state.page.evaluate(
+      ({ key, document }) => chrome.storage.local.set({ [key]: [document] }),
+      { key: libraryKey, document: boundaryDocument },
+    )
+    await state.page.reload()
+    await state.page.locator('.ProseMirror').waitFor()
+    await state.page.locator('#tab-library').click()
+
+    // When / Then
+    const metadata = state.page.locator('.library-card time')
+    assert.equal(
+      await state.page.evaluate(
+        () => Intl.DateTimeFormat().resolvedOptions().timeZone,
+      ),
+      'UTC',
+    )
+    assert.equal(await metadata.textContent(), 'Updated Aug 25, 2026')
+    assert.equal(await metadata.getAttribute('datetime'), '2026-08-25T20:00:00.000Z')
+    assert.equal(await metadata.getAttribute('aria-label'), 'Updated Aug 25, 2026')
   })
 })
