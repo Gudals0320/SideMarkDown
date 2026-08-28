@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { existsSync, mkdtempSync, mkdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { createServer } from 'node:http'
 import os from 'node:os'
 import path from 'node:path'
 import { after, before, describe, test } from 'node:test'
@@ -8,6 +9,7 @@ import { chromium } from 'playwright'
 const root = path.resolve(import.meta.dirname, '..')
 const dist = path.join(root, 'dist')
 const evidence = path.join(root, '.omo', 'evidence', 'wave1')
+const securityEvidence = path.join(root, '.omo', 'evidence', 'sidemarkdown-editor-redesign', 'security-remote-images')
 const draftKey = 'miniMdSessionDraft'
 const sourceMarkdown = '# 한국어 제목\n\n- 목록 항목과 `inline-code`\n\n긴토큰_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_한국어'
 const issueMarkdown = '# Test\n\n## H2\n\n### H3\n\n테스트입니다.\n\n테스트입니다.\n'
@@ -92,7 +94,17 @@ const expectedSemanticColors = {
     inlineCode: { foreground: 'rgb(230, 199, 157)', background: 'rgb(58, 51, 42)' },
   },
 }
-const state = { context: undefined, page: undefined, profile: '', errors: [], manual: {}, worker: undefined }
+const state = {
+  context: undefined,
+  page: undefined,
+  profile: '',
+  errors: [],
+  expectedCspBlockedFailures: [],
+  expectedCspConsoleErrors: [],
+  expectedCspBlockedUrls: new Set(),
+  manual: {},
+  worker: undefined,
+}
 
 const contrastRatio = (foreground, background) => {
   const luminance = (color) => {
@@ -194,7 +206,27 @@ describe('unpacked SideMarkDown extension', { concurrency: false }, () => {
     await state.context.grantPermissions(['clipboard-read', 'clipboard-write'])
     state.page = await state.context.newPage()
     state.page.on('pageerror', (error) => state.errors.push(`page: ${error.message}`))
-    state.page.on('requestfailed', (request) => state.errors.push(`request: ${request.url()}`))
+    state.page.on('requestfailed', (request) => {
+      if (state.expectedCspBlockedUrls.has(request.url())) {
+        state.expectedCspBlockedFailures.push({
+          errorText: request.failure()?.errorText ?? null,
+          url: request.url(),
+        })
+        return
+      }
+      state.errors.push(`request: ${request.url()}`)
+    })
+    state.page.on('console', (message) => {
+      if (
+        message.type() === 'error'
+        && message.text().includes('Content Security Policy')
+        && [...state.expectedCspBlockedUrls].some((url) => message.text().includes(url))
+      ) {
+        state.expectedCspConsoleErrors.push(message.text())
+        return
+      }
+      if (message.type() === 'error') state.errors.push(`console: ${message.text()}`)
+    })
     worker.on('console', (message) => {
       if (message.type() === 'error') state.errors.push(`worker: ${message.text()}`)
     })
@@ -1253,6 +1285,7 @@ describe('unpacked SideMarkDown extension', { concurrency: false }, () => {
 
     // When: a genuine CSS zoom changes the 375px saved-document layout, rather than merely magnifying pixels.
     await page.evaluate(() => { document.documentElement.style.zoom = '2' })
+    await page.waitForFunction(() => getComputedStyle(document.documentElement).zoom === '2')
     try {
       await page.locator('#copy').focus()
       for (const selector of ['#copy-compact', '#save-document', '#cancel-document', '#delete-document']) {
@@ -1328,6 +1361,143 @@ describe('unpacked SideMarkDown extension', { concurrency: false }, () => {
     assert.equal(await state.page.evaluate(() => chrome.storage.onChanged.hasListeners()), false, 'waitForDraftChange timeout must remove its listener')
     writeFileSync(path.join(evidence, 'runtime-errors.json'), JSON.stringify(state.errors, null, 2))
     assert.deepEqual(state.errors, [])
+  })
+
+  test('blocks Markdown-derived remote image requests from session and Library documents while retaining data images', async () => {
+    const page = state.page
+    const cspBlockedRequestAttempts = []
+    const externalResponses = []
+    const outboundRequestUrls = []
+    let requestCount = 0
+    const beacon = createServer((request, response) => {
+      requestCount += 1
+      outboundRequestUrls.push(request.url)
+      response.writeHead(200, { 'Content-Type': 'image/svg+xml' })
+      response.end('<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"/>')
+    })
+
+    mkdirSync(securityEvidence, { recursive: true })
+
+    await new Promise((resolve, reject) => {
+      beacon.once('error', reject)
+      beacon.listen(0, '127.0.0.1', resolve)
+    })
+
+    const address = beacon.address()
+    assert.ok(address && typeof address === 'object', 'the local image beacon must expose a TCP port')
+    const sessionImageUrl = `http://127.0.0.1:${address.port}/session-image.svg`
+    const libraryImageUrl = `http://127.0.0.1:${address.port}/library-image.svg`
+    const imageRequestListener = (request) => {
+      if (request.url() === sessionImageUrl || request.url() === libraryImageUrl) {
+        cspBlockedRequestAttempts.push(request.url())
+      }
+    }
+    const imageResponseListener = (response) => {
+      if (response.url() === sessionImageUrl || response.url() === libraryImageUrl) {
+        externalResponses.push(response.url())
+      }
+    }
+    page.on('request', imageRequestListener)
+    page.on('response', imageResponseListener)
+    state.expectedCspBlockedUrls.add(sessionImageUrl)
+    state.expectedCspBlockedUrls.add(libraryImageUrl)
+
+    try {
+      await page.evaluate(
+        ({ sessionKey, localKey, markdown, library }) => Promise.all([
+          chrome.storage.session.set({ [sessionKey]: markdown }),
+          chrome.storage.local.set({ [localKey]: library }),
+        ]),
+        {
+          sessionKey: draftKey,
+          localKey: 'miniMdLibrary',
+          markdown: `![Untrusted session image](${sessionImageUrl})`,
+          library: [{
+            id: '22222222-2222-4222-8222-222222222222',
+            markdown: `![Untrusted Library image](${libraryImageUrl})`,
+            createdAt: 1,
+            updatedAt: 1,
+          }],
+        },
+      )
+      await page.reload()
+      await page.waitForFunction(
+        () => document.querySelector('.ProseMirror img[alt="Untrusted session image"]')?.complete,
+      )
+      await page.screenshot({ path: path.join(securityEvidence, 'session-remote-csp-block.png'), fullPage: true })
+
+      await page.locator('#tab-library').click()
+      await page.locator('.library-card-edit').click()
+      await page.waitForFunction(
+        () => document.querySelector('.ProseMirror img[alt="Untrusted Library image"]')?.complete,
+      )
+      await page.screenshot({ path: path.join(securityEvidence, 'library-remote-csp-block.png'), fullPage: true })
+
+      await page.evaluate(
+        ({ key, markdown }) => chrome.storage.session.set({ [key]: markdown }),
+        { key: draftKey, markdown: `![Data fixture](${themeImageDataUrl})` },
+      )
+      await page.reload()
+      const dataImage = page.locator('.ProseMirror img[alt="Data fixture"]')
+      await dataImage.waitFor()
+      await dataImage.click()
+      await page.waitForFunction(
+        () => document.querySelector('.ProseMirror img[alt="Data fixture"]')?.classList.contains('ProseMirror-selectednode'),
+      )
+      await page.screenshot({ path: path.join(securityEvidence, 'data-image-rendered-selected.png'), fullPage: true })
+      const dataImageState = await dataImage.evaluate((image) => ({
+        complete: image.complete,
+        selected: image.classList.contains('ProseMirror-selectednode'),
+        src: image.currentSrc,
+      }))
+      const localShellAssets = await page.evaluate(() => Array.from(document.styleSheets)
+        .map((sheet) => sheet.href)
+        .filter((href) => href.startsWith(location.origin) && href.endsWith('.css')))
+
+      state.manual.remoteImageBoundary = {
+        requestCount,
+        outboundRequestUrls,
+        externalResponses,
+        cspBlockedRequestAttempts,
+        cspBlockedFailures: state.expectedCspBlockedFailures,
+        cspConsoleErrors: state.expectedCspConsoleErrors,
+        dataImageState,
+        localShellAssets,
+      }
+      assert.equal(requestCount, 0, `remote Markdown image requests reached the local beacon: ${requestCount}`)
+      assert.deepEqual(outboundRequestUrls, [], `beacon received unexpected remote request paths: ${JSON.stringify(outboundRequestUrls)}`)
+      assert.deepEqual(externalResponses, [], `runtime received unexpected remote image responses: ${JSON.stringify(externalResponses)}`)
+      assert.deepEqual(
+        cspBlockedRequestAttempts.sort(),
+        [sessionImageUrl, libraryImageUrl].sort(),
+        'Chromium must classify both hostile image sources as CSP-blocked request attempts before network dispatch',
+      )
+      assert.deepEqual(
+        state.expectedCspBlockedFailures.map((failure) => failure.url).sort(),
+        [sessionImageUrl, libraryImageUrl].sort(),
+        'both hostile image request failures must be captured as expected CSP instrumentation',
+      )
+      assert.deepEqual(dataImageState, {
+        complete: true,
+        selected: true,
+        src: themeImageDataUrl,
+      })
+      assert.ok(localShellAssets.length > 0, 'the side-panel CSS bundle must continue to load from the extension origin')
+      assert.deepEqual(state.errors, [], 'only the expected CSP blocks may occur during hostile image handling')
+    } finally {
+      page.off('request', imageRequestListener)
+      page.off('response', imageResponseListener)
+      await new Promise((resolve, reject) => beacon.close((error) => error ? reject(error) : resolve()))
+      await page.evaluate(
+        ({ sessionKey, localKey, markdown }) => Promise.all([
+          chrome.storage.session.set({ [sessionKey]: markdown }),
+          chrome.storage.local.set({ [localKey]: [] }),
+        ]),
+        { sessionKey: draftKey, localKey: 'miniMdLibrary', markdown: sourceMarkdown },
+      )
+      await page.reload()
+      await page.locator('.ProseMirror code').waitFor()
+    }
   })
 
 })

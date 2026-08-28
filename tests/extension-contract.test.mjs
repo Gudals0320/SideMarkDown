@@ -187,6 +187,9 @@ test('source manifest and background configure side panel action click only', ()
 
   assert.equal(manifest.manifest_version, 3)
   assert.deepEqual(manifest.permissions, ['sidePanel', 'storage'])
+  assert.deepEqual(manifest.content_security_policy, {
+    extension_pages: "script-src 'self'; object-src 'self'; connect-src 'none'; img-src 'self' data: blob:",
+  })
   assert.equal('host_permissions' in manifest, false)
   assert.equal('content_scripts' in manifest, false)
   assert.equal(manifest.permissions.includes('unlimitedStorage'), false)
@@ -285,7 +288,9 @@ test('session draft stays session-only while saved Library documents use local s
   assert.deepEqual(manifest.permissions, ['sidePanel', 'storage'])
   assert.equal('host_permissions' in manifest, false)
   assert.equal('content_scripts' in manifest, false)
-  assert.equal('content_security_policy' in manifest, false)
+  assert.deepEqual(manifest.content_security_policy, {
+    extension_pages: "script-src 'self'; object-src 'self'; connect-src 'none'; img-src 'self' data: blob:",
+  })
   assert.equal(manifest.permissions.includes('unlimitedStorage'), false)
   assert.match(sidepanel, /const sessionDraftKey = 'miniMdSessionDraft'/)
   assert.match(sidepanel, /chrome\.storage\.session\.get\(sessionDraftKey\)/)
@@ -628,7 +633,9 @@ test('built extension artifacts are load-unpacked compatible and local-only', ()
 
   assert.equal(existsSync(path.join(dist, manifest.side_panel.default_path)), true)
   assert.equal(existsSync(path.join(dist, manifest.background.service_worker)), true)
-  assert.equal('content_security_policy' in manifest, false)
+  assert.deepEqual(manifest.content_security_policy, {
+    extension_pages: "script-src 'self'; object-src 'self'; connect-src 'none'; img-src 'self' data: blob:",
+  })
   assert.equal('host_permissions' in manifest, false)
   assert.equal('content_scripts' in manifest, false)
   assert.deepEqual(manifest.permissions, ['sidePanel', 'storage'])
