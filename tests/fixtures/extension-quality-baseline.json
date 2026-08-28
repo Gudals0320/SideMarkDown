@@ -1,0 +1,54 @@
+{
+  "schemaVersion": 1,
+  "boundary": {
+    "version": "todo1-ready-v1",
+    "description": "Node performance.now() immediately before page.goto(extensionUrl) through visible .ProseMirror, enabled Editor/Library tabs and every visible action, resolved Editor view, then one requestAnimationFrame"
+  },
+  "provenance": {
+    "todo1BaseSha": "0b7a49d5760a6785566f22729f71ca648253860b",
+    "historicalTodo1": {
+      "samples": [191.45, 231.912, 133.568],
+      "median": 191.45
+    },
+    "sameSessionReference": {
+      "candidateSha": "be5cc655f43754705e5285e4fa7adc1a3e56967b",
+      "samples": [235.383, 263.664, 196.432],
+      "median": 235.383
+    }
+  },
+  "browser": {
+    "engine": "chromium",
+    "package": "playwright@1.62.1",
+    "protocol": "chrome-extension",
+    "headed": true,
+    "viewport": { "width": 375, "height": 900 }
+  },
+  "multiplier": 1.1,
+  "budgets": {
+    "readyMs": 2000,
+    "feedbackMs": 250,
+    "sidepanelJsGzip": 140000,
+    "sidepanelCssGzip": 8192,
+    "sidepanelHtmlGzip": 12288
+  },
+  "todo1Assets": [
+    {
+      "path": "dist/assets/sidepanel.js",
+      "rawBytes": 443693,
+      "gzipBytes": 130052,
+      "sha256": "9fd5f88b78220b151b695362792eca39f2b7759fdafde5a2542b4acd43584472"
+    },
+    {
+      "path": "dist/assets/sidepanel.css",
+      "rawBytes": 20699,
+      "gzipBytes": 4789,
+      "sha256": "89cf7a52daebc15a07907cfa0b1e95adcf6a04315281544f6fb5e3665fa0ecfc"
+    },
+    {
+      "path": "dist/sidepanel.html",
+      "rawBytes": 2720,
+      "gzipBytes": 748,
+      "sha256": "5495bde71c7d9864387fc5fc8475b4baf7918f7c06d40a54bffd5798777495c4"
+    }
+  ]
+}

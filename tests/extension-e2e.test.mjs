@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { existsSync, mkdtempSync, mkdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { createServer } from 'node:http'
 import os from 'node:os'
 import path from 'node:path'
 import { after, before, describe, test } from 'node:test'
@@ -8,12 +9,52 @@ import { chromium } from 'playwright'
 const root = path.resolve(import.meta.dirname, '..')
 const dist = path.join(root, 'dist')
 const evidence = path.join(root, '.omo', 'evidence', 'wave1')
+const securityEvidence = path.join(root, '.omo', 'evidence', 'sidemarkdown-editor-redesign', 'security-remote-images')
 const draftKey = 'miniMdSessionDraft'
 const sourceMarkdown = '# 한국어 제목\n\n- 목록 항목과 `inline-code`\n\n긴토큰_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_한국어'
 const issueMarkdown = '# Test\n\n## H2\n\n### H3\n\n테스트입니다.\n\n테스트입니다.\n'
 const compactIssueMarkdown = '# Test\n## H2\n### H3\n테스트입니다.\n테스트입니다.'
 const hardbreakMarkdown = 'First\\\nSecond\n'
 const compactHardbreakMarkdown = 'First\\\nSecond'
+const themeImageDataUrl = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0MDAiIGhlaWdodD0iMjAwIiByb2xlPSJpbWciPjxyZWN0IHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiIGZpbGw9IiMzNTU4ODQiLz48dGV4dCB4PSI0MCIgeT0iMTEwIiBmaWxsPSIjZmZmZGY4IiBmb250LXNpemU9IjMyIj5UaGVtZSBmaXh0dXJlPC90ZXh0Pjwvc3ZnPg=='
+const commonmarkStressMarkdown = [
+  '# H1 paper heading',
+  '',
+  '## H2 section',
+  '',
+  '### H3 subsection',
+  '',
+  '#### H4 compact',
+  '',
+  '##### H5 compact',
+  '',
+  '###### H6 compact',
+  '',
+  'Paragraph with **strong ink**, *emphasis*, [accent link](https://example.test/theme), and `warm-inline`.',
+  '',
+  `![Theme fixture](${themeImageDataUrl})`,
+  '',
+  '> Quote surface with restrained editorial rhythm.',
+  '',
+  '- Bullet root',
+  '  - Bullet second',
+  '    - Bullet third',
+  '',
+  '1. Ordered root',
+  '   1. Ordered second',
+  '      1. Ordered third',
+  '',
+  '---',
+  '',
+  'Hard break first\\',
+  'Hard break second',
+  '',
+  '```text',
+  'overlong_code_identifier_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_한국어_日本語_中文_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789',
+  '```',
+  '',
+  'CJK paragraph 한국어 日本語 中文 and https://example.test/very-long-url/ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_한국어_日本語_中文.',
+].join('\n')
 const structuralMarkdown = [
   '# Structure',
   '',
@@ -35,11 +76,35 @@ const structuralMarkdown = [
   '```-like',
   '```',
 ].join('\n')
-const expectedInlineCodeColors = {
-  light: { foreground: 'rgb(46, 52, 64)', background: 'rgb(229, 233, 240)' },
-  dark: { foreground: 'rgb(236, 239, 244)', background: 'rgb(46, 52, 64)' },
+const expectedSemanticColors = {
+  light: {
+    canvas: 'rgb(242, 240, 235)',
+    surface: 'rgb(248, 247, 243)',
+    editor: 'rgb(255, 253, 248)',
+    ink: 'rgb(42, 41, 39)',
+    accent: 'rgb(76, 111, 163)',
+    inlineCode: { foreground: 'rgb(90, 70, 48)', background: 'rgb(241, 234, 223)' },
+  },
+  dark: {
+    canvas: 'rgb(31, 33, 31)',
+    surface: 'rgb(38, 41, 37)',
+    editor: 'rgb(35, 37, 34)',
+    ink: 'rgb(234, 231, 223)',
+    accent: 'rgb(156, 181, 212)',
+    inlineCode: { foreground: 'rgb(230, 199, 157)', background: 'rgb(58, 51, 42)' },
+  },
 }
-const state = { context: undefined, page: undefined, profile: '', errors: [], manual: {}, worker: undefined }
+const state = {
+  context: undefined,
+  page: undefined,
+  profile: '',
+  errors: [],
+  expectedCspBlockedFailures: [],
+  expectedCspConsoleErrors: [],
+  expectedCspBlockedUrls: new Set(),
+  manual: {},
+  worker: undefined,
+}
 
 const contrastRatio = (foreground, background) => {
   const luminance = (color) => {
@@ -141,7 +206,27 @@ describe('unpacked SideMarkDown extension', { concurrency: false }, () => {
     await state.context.grantPermissions(['clipboard-read', 'clipboard-write'])
     state.page = await state.context.newPage()
     state.page.on('pageerror', (error) => state.errors.push(`page: ${error.message}`))
-    state.page.on('requestfailed', (request) => state.errors.push(`request: ${request.url()}`))
+    state.page.on('requestfailed', (request) => {
+      if (state.expectedCspBlockedUrls.has(request.url())) {
+        state.expectedCspBlockedFailures.push({
+          errorText: request.failure()?.errorText ?? null,
+          url: request.url(),
+        })
+        return
+      }
+      state.errors.push(`request: ${request.url()}`)
+    })
+    state.page.on('console', (message) => {
+      if (
+        message.type() === 'error'
+        && message.text().includes('Content Security Policy')
+        && [...state.expectedCspBlockedUrls].some((url) => message.text().includes(url))
+      ) {
+        state.expectedCspConsoleErrors.push(message.text())
+        return
+      }
+      if (message.type() === 'error') state.errors.push(`console: ${message.text()}`)
+    })
     worker.on('console', (message) => {
       if (message.type() === 'error') state.errors.push(`worker: ${message.text()}`)
     })
@@ -181,7 +266,55 @@ describe('unpacked SideMarkDown extension', { concurrency: false }, () => {
     await screenshot(state.page, 'manual-korean-375x900.png')
   })
 
-  test('uses exact Nord inline-code colors with contrast at least 4.5 in light and dark', async () => {
+  test('shows the empty-editor placeholder until focus or input', async () => {
+    const page = state.page
+    try {
+      await page.evaluate((key) => chrome.storage.session.set({ [key]: '' }), draftKey)
+      for (const colorScheme of ['light', 'dark']) {
+        await page.emulateMedia({ colorScheme })
+        await page.reload()
+        const editor = page.locator('.ProseMirror')
+        await editor.waitFor()
+        const empty = await editor.evaluate((node) => {
+          const paragraph = node.querySelector('p')
+          const pseudo = paragraph ? getComputedStyle(paragraph, '::before') : undefined
+          const editorPseudo = getComputedStyle(node, '::before')
+          return {
+            editorPlaceholder: node.getAttribute('data-placeholder'),
+            paragraphPlaceholder: paragraph?.getAttribute('data-placeholder') ?? null,
+            paragraphContent: pseudo?.content ?? null,
+            editorContent: editorPseudo.content,
+            editorText: node.textContent,
+          }
+        })
+        assert.equal(empty.editorPlaceholder, 'Start writing…')
+        assert.equal(empty.paragraphPlaceholder, null)
+        assert.equal(empty.paragraphContent, 'none', 'placeholder must not depend on an absent paragraph attribute')
+        assert.equal(empty.editorContent, '"Start writing…"', `${colorScheme} empty unfocused editor must visibly render its placeholder`)
+        assert.equal(empty.editorText, '')
+        await screenshot(page, `manual-placeholder-${colorScheme}-375x900.png`)
+
+        await editor.focus()
+        assert.equal(await editor.evaluate((node) => getComputedStyle(node, '::before').content), 'none', `${colorScheme} focused editor must hide its placeholder`)
+        await editor.pressSequentially('A')
+        assert.equal(await editor.textContent(), 'A')
+        assert.equal(await editor.evaluate((node) => getComputedStyle(node, '::before').content), 'none', `${colorScheme} typed editor must hide its placeholder`)
+        await editor.press('ControlOrMeta+A')
+        await editor.press('Backspace')
+        assert.equal(await editor.textContent(), '')
+        assert.equal(await editor.evaluate((node) => getComputedStyle(node, '::before').content), 'none', `${colorScheme} focused empty editor must keep its placeholder hidden`)
+        await page.locator('#tab-library').focus()
+        assert.equal(await editor.evaluate((node) => getComputedStyle(node, '::before').content), '\"Start writing…\"', `${colorScheme} emptied editor must restore its placeholder after focus leaves`)
+      }
+    } finally {
+      await page.evaluate(({ key, markdown }) => chrome.storage.session.set({ [key]: markdown }), { key: draftKey, markdown: sourceMarkdown })
+      await page.emulateMedia({ colorScheme: 'light' })
+      await page.reload()
+      await page.locator('.ProseMirror code').waitFor()
+    }
+  })
+
+  test('uses exact semantic colors without Nord runtime classes in light and dark', async () => {
     const inlineCode = state.page.locator('.ProseMirror :not(pre) > code').first()
     for (const colorScheme of ['light', 'dark']) {
       await state.page.emulateMedia({ colorScheme })
@@ -197,22 +330,248 @@ describe('unpacked SideMarkDown extension', { concurrency: false }, () => {
         throw new Error('Inline code has no rendered background.')
       })
       const ratio = contrastRatio(colors.foreground, colors.background)
-      const editorBackground = await state.page.evaluate(
-        () => getComputedStyle(document.documentElement).backgroundColor,
-      )
-      state.manual[`${colorScheme}InlineCode`] = { ...colors, editorBackground, ratio }
-      assert.deepEqual(colors, expectedInlineCodeColors[colorScheme])
+      const surface = await state.page.evaluate(() => {
+        const selectedTab = document.querySelector('.tab[aria-selected="true"]')
+        const nordRuntimeClass = ['milkdown', 'theme', 'nord'].join('-')
+        return {
+          canvas: getComputedStyle(document.documentElement).backgroundColor,
+          surface: getComputedStyle(document.querySelector('.app-header')).backgroundColor,
+          editor: getComputedStyle(document.querySelector('.ProseMirror')).backgroundColor,
+          ink: getComputedStyle(document.querySelector('.ProseMirror')).color,
+          accent: selectedTab ? getComputedStyle(selectedTab).borderBottomColor : '',
+          hasNordRuntimeClass: Boolean(document.querySelector(`[class*="${nordRuntimeClass}"]`)),
+        }
+      })
+      const expected = expectedSemanticColors[colorScheme]
+      state.manual[`${colorScheme}SemanticTokens`] = { ...surface, inlineCode: colors, ratio }
+      assert.deepEqual(colors, expected.inlineCode)
+      assert.equal(surface.canvas, expected.canvas)
+      assert.equal(surface.surface, expected.surface)
+      assert.equal(surface.editor, expected.editor)
+      assert.equal(surface.ink, expected.ink)
+      assert.equal(surface.accent, expected.accent)
+      assert.equal(surface.hasNordRuntimeClass, false)
       assert.ok(ratio >= 4.5, `${colorScheme} inline-code contrast is below 4.5:1`)
       if (colorScheme === 'dark') {
         assert.notEqual(
           colors.background,
-          editorBackground,
+          surface.editor,
           'dark inline-code background must differ from the editor background',
         )
       }
       await screenshot(state.page, `manual-inline-code-${colorScheme}-375x900.png`)
     }
     await state.page.emulateMedia({ colorScheme: 'light' })
+  })
+
+  test('renders every active CommonMark semantic with the paper-surface hierarchy', async () => {
+    const page = state.page
+    try {
+      await page.evaluate(
+        ({ key, markdown }) => chrome.storage.session.set({ [key]: markdown }),
+        { key: draftKey, markdown: commonmarkStressMarkdown },
+      )
+      await page.reload()
+      await page.locator('.ProseMirror h6').waitFor()
+      const image = page.locator('.ProseMirror img[alt="Theme fixture"]')
+      const imageBefore = await image.boundingBox()
+      await image.click()
+      await page.waitForFunction(() => document.querySelector('.ProseMirror img')?.classList.contains('ProseMirror-selectednode'))
+      const imageAfter = await image.boundingBox()
+      const styles = await page.evaluate(() => {
+        const style = (selector) => {
+          const node = document.querySelector(selector)
+          if (!node) throw new Error(`Missing semantic fixture node: ${selector}`)
+          const computed = getComputedStyle(node)
+          return {
+            color: computed.color,
+            backgroundColor: computed.backgroundColor,
+            borderColor: computed.borderColor,
+            borderLeftWidth: computed.borderLeftWidth,
+            borderTopWidth: computed.borderTopWidth,
+            borderRadius: computed.borderRadius,
+            caretColor: computed.caretColor,
+            fontSize: computed.fontSize,
+            fontStyle: computed.fontStyle,
+            fontWeight: computed.fontWeight,
+            lineHeight: computed.lineHeight,
+            marginBottom: computed.marginBottom,
+            marginTop: computed.marginTop,
+            maxWidth: computed.maxWidth,
+            outlineColor: computed.outlineColor,
+            outlineStyle: computed.outlineStyle,
+            outlineWidth: computed.outlineWidth,
+            overflowWrap: computed.overflowWrap,
+            overflowX: computed.overflowX,
+            padding: computed.padding,
+            paddingBottom: computed.paddingBottom,
+            paddingLeft: computed.paddingLeft,
+            paddingRight: computed.paddingRight,
+            paddingTop: computed.paddingTop,
+            textDecorationLine: computed.textDecorationLine,
+            textUnderlineOffset: computed.textUnderlineOffset,
+            whiteSpace: computed.whiteSpace,
+            wordSpacing: computed.wordSpacing,
+          }
+        }
+        const editor = document.querySelector('.ProseMirror')
+        const range = document.createRange()
+        const text = editor?.querySelector('p')?.firstChild
+        if (!editor || !text) throw new Error('Missing selection fixture text.')
+        range.setStart(text, 0)
+        range.setEnd(text, Math.min(9, text.textContent?.length ?? 0))
+        const selection = window.getSelection()
+        selection?.removeAllRanges()
+        selection?.addRange(range)
+        editor.focus()
+        return {
+          editor: style('.ProseMirror'),
+          headings: ['h1', 'h2', 'h3', 'h4', 'h5', 'h6'].map((tag) => style(`.ProseMirror ${tag}`)),
+          paragraph: style('.ProseMirror p'),
+          strong: style('.ProseMirror strong'),
+          emphasis: style('.ProseMirror em'),
+          link: style('.ProseMirror a'),
+          image: style('.ProseMirror img'),
+          quote: style('.ProseMirror blockquote'),
+          unordered: style('.ProseMirror ul'),
+          ordered: style('.ProseMirror ol'),
+          rule: style('.ProseMirror hr'),
+          inlineCode: style('.ProseMirror :not(pre) > code'),
+          fencedCode: style('.ProseMirror pre'),
+          hardbreakCount: document.querySelectorAll('.ProseMirror [data-type="hardbreak"]').length,
+          selectedText: selection?.toString(),
+          selection: getComputedStyle(editor).getPropertyValue('color'),
+          bodyFits: document.body.scrollWidth <= document.body.clientWidth,
+          editorFits: editor.scrollWidth <= editor.clientWidth,
+          codeScrolls: editor.querySelector('pre')?.scrollWidth > editor.querySelector('pre')?.clientWidth,
+          imageAlt: document.querySelector('.ProseMirror img')?.getAttribute('alt'),
+          renderedText: editor.textContent,
+        }
+      })
+
+      const assertPaperGeometry = async (width, expectedPadding) => {
+        await page.setViewportSize({ width, height: 900 })
+        const geometry = await page.evaluate(() => {
+          const editor = document.querySelector('.ProseMirror')
+          const scrollSurface = document.querySelector('#editor')
+          if (!editor || !scrollSurface) throw new Error('Missing paper or editor scroll surface.')
+          const style = getComputedStyle(editor)
+          const paper = editor.getBoundingClientRect()
+          const surface = scrollSurface.getBoundingClientRect()
+          const zoom = Number.parseFloat(getComputedStyle(document.documentElement).zoom) || 1
+          const probe = document.createElement('span')
+          probe.setAttribute('aria-hidden', 'true')
+          probe.style.cssText = [
+            'position: fixed',
+            'visibility: hidden',
+            'pointer-events: none',
+            'display: block',
+            'width: 72ch',
+            `font-family: ${style.fontFamily}`,
+            `font-size: ${style.fontSize}`,
+            `font-style: ${style.fontStyle}`,
+            `font-weight: ${style.fontWeight}`,
+            `letter-spacing: ${style.letterSpacing}`,
+          ].join(';')
+          document.body.append(probe)
+          const expectedProseMeasure = probe.getBoundingClientRect().width
+          probe.remove()
+          return {
+            active: document.activeElement === editor,
+            bodyFits: document.body.scrollWidth <= document.body.clientWidth,
+            zoom,
+            paper: { left: paper.left / zoom, right: paper.right / zoom, width: paper.width / zoom },
+            surface: { left: surface.left, right: surface.left + scrollSurface.clientWidth, width: scrollSurface.clientWidth },
+            maxWidth: style.maxWidth,
+            paddingTop: style.paddingTop,
+            paddingRight: style.paddingRight,
+            paddingBottom: style.paddingBottom,
+            paddingLeft: style.paddingLeft,
+            proseMeasure: paper.width - Number.parseFloat(style.paddingLeft) - Number.parseFloat(style.paddingRight),
+            expectedProseMeasure,
+          }
+        })
+        assert.ok(Math.abs(geometry.paper.width - geometry.surface.width) <= 1, `paper must fill the editor scroll surface at ${width}px`)
+        assert.ok(Math.abs(geometry.paper.left - geometry.surface.left) <= 1, `paper must begin at the editor scroll surface at ${width}px`)
+        assert.equal(geometry.maxWidth, 'none')
+        assert.equal(geometry.paddingTop, expectedPadding.top)
+        assert.equal(geometry.paddingBottom, expectedPadding.bottom)
+        if (expectedPadding.inline) {
+          assert.equal(geometry.paddingLeft, expectedPadding.inline)
+          assert.equal(geometry.paddingRight, expectedPadding.inline)
+        }
+        assert.equal(geometry.bodyFits, true)
+        if (width > 420 && geometry.zoom === 1) {
+          assert.ok(
+            Math.abs(geometry.proseMeasure - geometry.expectedProseMeasure) <= 1,
+            `wide prose measure must remain at the computed 72ch at ${width}px: ${JSON.stringify(geometry)}`,
+          )
+        }
+        if (geometry.zoom === 1) {
+          await page.locator('.ProseMirror').click({
+            position: { x: geometry.paper.width - Number.parseFloat(geometry.paddingRight) / 2, y: 10 },
+          })
+        } else {
+          await page.locator('.ProseMirror').focus()
+        }
+        assert.equal(await page.locator('.ProseMirror').evaluate((node) => document.activeElement === node), true, `wide paper gutter must focus the editor at ${width}px`)
+      }
+      await assertPaperGeometry(375, { top: '20px', inline: '16px', bottom: '40px' })
+      await assertPaperGeometry(768, { top: '24px', bottom: '48px' })
+      await assertPaperGeometry(1280, { top: '24px', bottom: '48px' })
+      await page.evaluate(() => { document.documentElement.style.zoom = '2' })
+      await assertPaperGeometry(1280, { top: '24px', bottom: '48px' })
+      await page.evaluate(() => { document.documentElement.style.zoom = '' })
+      await page.setViewportSize({ width: 375, height: 900 })
+
+      assert.deepEqual(styles.headings.map(({ fontSize, lineHeight, fontWeight }) => ({ fontSize, lineHeight, fontWeight })), [
+        { fontSize: '26px', lineHeight: '31.2px', fontWeight: '700' },
+        { fontSize: '21px', lineHeight: '27.3px', fontWeight: '700' },
+        { fontSize: '17px', lineHeight: '23.8px', fontWeight: '600' },
+        { fontSize: '15px', lineHeight: '22.5px', fontWeight: '600' },
+        { fontSize: '15px', lineHeight: '22.5px', fontWeight: '600' },
+        { fontSize: '15px', lineHeight: '22.5px', fontWeight: '600' },
+      ])
+      assert.equal(styles.editor.fontSize, '15px')
+      assert.equal(styles.editor.lineHeight, '25.8px')
+      assert.equal(styles.editor.overflowWrap, 'anywhere')
+      assert.equal(styles.editor.wordSpacing, '2.25px')
+      assert.equal(styles.strong.fontWeight, '700')
+      assert.equal(styles.emphasis.fontStyle, 'italic')
+      assert.equal(styles.link.textDecorationLine, 'underline')
+      assert.equal(styles.link.textUnderlineOffset, '2px')
+      assert.equal(styles.quote.borderLeftWidth, '3px')
+      assert.equal(styles.rule.borderTopWidth, '1px')
+      assert.equal(styles.inlineCode.borderRadius, '4px')
+      assert.equal(styles.inlineCode.wordSpacing, '0px')
+      assert.equal(styles.fencedCode.padding, '14px 16px')
+      assert.equal(styles.fencedCode.borderRadius, '6px')
+      assert.equal(styles.fencedCode.overflowX, 'auto')
+      assert.equal(styles.fencedCode.whiteSpace, 'pre')
+      assert.equal(styles.fencedCode.wordSpacing, '0px')
+      assert.equal(styles.image.maxWidth, '100%')
+      assert.equal(styles.image.outlineWidth, '2px')
+      assert.equal(styles.image.outlineStyle, 'solid')
+      assert.equal(styles.hardbreakCount, 1)
+      assert.equal(styles.imageAlt, 'Theme fixture')
+      assert.equal(styles.bodyFits, true)
+      assert.equal(styles.editorFits, true)
+      assert.equal(styles.codeScrolls, true)
+      assert.equal(styles.renderedText.includes('# H1'), false)
+      assert.equal(styles.renderedText.includes('```'), false)
+      assert.ok(styles.selectedText.length > 0)
+      assert.ok(imageBefore && imageAfter)
+      assert.deepEqual(imageAfter, imageBefore)
+      assert.deepEqual(state.errors, [])
+      await screenshot(page, 'repair-commonmark-375x900.png')
+    } finally {
+      await page.evaluate(
+        ({ key, markdown }) => chrome.storage.session.set({ [key]: markdown }),
+        { key: draftKey, markdown: sourceMarkdown },
+      )
+      await page.reload()
+      await page.locator('.ProseMirror code').waitFor()
+    }
   })
 
   test('reaches the editor by Tab with a visible 2px focus outline', async () => {
@@ -530,6 +889,507 @@ describe('unpacked SideMarkDown extension', { concurrency: false }, () => {
     await page.setViewportSize({ width: 375, height: 900 })
   })
 
+  test('keeps draft actions on one row and saved actions on exactly two rows at 375px', async () => {
+    // Given: the real unpacked extension is in draft mode with every action visible.
+    const page = state.page
+    const savedDocument = {
+      id: '88888888-8888-4888-8888-888888888888',
+      markdown: '# Toolbar geometry\n\nA saved document.',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const expectedDraft = [
+      { selector: '#copy', label: 'Copy MD', hasIcon: true },
+      { selector: '#copy-compact', label: 'Copy compact', hasIcon: true },
+      { selector: '#clear', label: 'Clear', hasIcon: true },
+      { selector: '#save-draft', label: 'Save to Library', hasIcon: false },
+    ]
+    const expectedSaved = [
+      { selector: '#copy', label: 'Copy MD', hasIcon: true },
+      { selector: '#copy-compact', label: 'Copy compact', hasIcon: true },
+      { selector: '#save-document', label: 'Save changes', hasIcon: false },
+      { selector: '#cancel-document', label: 'Cancel', hasIcon: false },
+      { selector: '#delete-document', label: 'Delete', hasIcon: true },
+    ]
+    const observations = { draft: [], saved: [] }
+    const measureToolbar = (expected) => page.evaluate((expectedControls) => {
+      const toolbar = document.querySelector('#editor-actions')
+      const toolbarRect = toolbar.getBoundingClientRect()
+      const controls = expectedControls.map(({ selector, label, hasIcon }) => {
+        const button = document.querySelector(selector)
+        const rect = button.getBoundingClientRect()
+        const icon = button.querySelector('svg')
+        const iconRect = icon?.getBoundingClientRect()
+        return {
+          selector,
+          label,
+          hasIcon,
+          text: button.textContent.replace(/\s+/g, ' ').trim(),
+          accessibleName: button.getAttribute('aria-label') ?? button.textContent.replace(/\s+/g, ' ').trim(),
+          clipped: button.scrollWidth > button.clientWidth || button.scrollHeight > button.clientHeight,
+          rect: { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom, width: rect.width, height: rect.height },
+          icon: iconRect ? { width: iconRect.width, height: iconRect.height } : null,
+        }
+      })
+      const overlaps = controls.flatMap((control, index) => controls.slice(index + 1).flatMap((other) => (
+        control.rect.left < other.rect.right && control.rect.right > other.rect.left
+          && control.rect.top < other.rect.bottom && control.rect.bottom > other.rect.top
+          ? [[control.selector, other.selector]]
+          : []
+      )))
+      return {
+        bodyFits: document.body.scrollWidth <= document.body.clientWidth,
+        toolbarFits: toolbar.scrollWidth <= toolbar.clientWidth,
+        toolbar: { left: toolbarRect.left, right: toolbarRect.right, top: toolbarRect.top, bottom: toolbarRect.bottom },
+        controls,
+        overlaps,
+        rows: [...new Set(controls.map((control) => Math.round(control.rect.top)))],
+      }
+    }, expected)
+
+    await page.evaluate(
+      ({ sessionKey, localKey }) => Promise.all([
+        chrome.storage.session.set({ [sessionKey]: '# Draft toolbar' }),
+        chrome.storage.local.set({ [localKey]: [] }),
+      ]),
+      { sessionKey: draftKey, localKey: 'miniMdLibrary' },
+    )
+    await page.reload()
+    await page.locator('.ProseMirror').waitFor()
+
+    for (const width of [375, 768, 1280]) {
+      // When: draft actions are rendered at a supported viewport width.
+      await page.setViewportSize({ width, height: 900 })
+      const geometry = await measureToolbar(expectedDraft)
+      observations.draft.push({ width, geometry })
+
+      // Then: all complete actions remain one non-overlapping row inside the toolbar.
+      assert.equal(geometry.rows.length, 1, `draft toolbar must use one row at ${width}px: ${JSON.stringify(geometry.controls)}`)
+      assert.equal(geometry.bodyFits, true, `draft toolbar widens the body at ${width}px`)
+      assert.equal(geometry.toolbarFits, true, `draft toolbar scrolls at ${width}px`)
+      assert.deepEqual(geometry.overlaps, [], `draft toolbar controls overlap at ${width}px`)
+      for (const control of geometry.controls) {
+        assert.equal(control.text, control.label, `${control.selector} visible label is incomplete`)
+        assert.equal(control.accessibleName, control.label, `${control.selector} accessible name changed`)
+        assert.equal(control.clipped, false, `${control.selector} label or icon is clipped`)
+        assert.equal(Boolean(control.icon), control.hasIcon, `${control.selector} icon presence changed`)
+        if (control.icon) assert.deepEqual(control.icon, { width: 16, height: 16 }, `${control.selector} icon geometry changed`)
+        assert.ok(control.rect.height >= 36, `${control.selector} is shorter than 36px`)
+        assert.ok(control.rect.left >= geometry.toolbar.left && control.rect.right <= geometry.toolbar.right, `${control.selector} escapes the toolbar`)
+        assert.ok(control.rect.top >= geometry.toolbar.top && control.rect.bottom <= geometry.toolbar.bottom, `${control.selector} escapes the toolbar vertically`)
+      }
+    }
+
+    const forcedWideMetrics = await page.addStyleTag({
+      content: '@media (max-width: 420px) { #editor-actions button { letter-spacing: 0.5px; } }',
+    })
+    await page.setViewportSize({ width: 375, height: 900 })
+    const forcedGeometry = await measureToolbar(expectedDraft)
+    observations.draft.push({ width: 375, metricMode: 'forced-wide', geometry: forcedGeometry })
+    assert.equal(
+      forcedGeometry.rows.length,
+      1,
+      `draft toolbar must tolerate wider system-font metrics at 375px: ${JSON.stringify(forcedGeometry.controls)}`,
+    )
+    assert.equal(forcedGeometry.bodyFits, true, 'wide-metric draft toolbar widens the body')
+    assert.equal(forcedGeometry.toolbarFits, true, 'wide-metric draft toolbar scrolls')
+    assert.deepEqual(forcedGeometry.overlaps, [], 'wide-metric draft toolbar controls overlap')
+    for (const control of forcedGeometry.controls) {
+      assert.equal(control.text, control.label, `${control.selector} forced-metric visible label is incomplete`)
+      assert.equal(control.accessibleName, control.label, `${control.selector} forced-metric accessible name changed`)
+      assert.equal(control.clipped, false, `${control.selector} forced-metric label or icon is clipped`)
+      assert.ok(control.rect.height >= 36, `${control.selector} forced-metric control is shorter than 36px`)
+      assert.ok(
+        control.rect.left >= forcedGeometry.toolbar.left && control.rect.right <= forcedGeometry.toolbar.right,
+        `${control.selector} forced-metric control escapes the toolbar`,
+      )
+    }
+    await forcedWideMetrics.evaluate((node) => node.remove())
+
+    await page.evaluate(
+      ({ sessionKey, localKey, document }) => Promise.all([
+        chrome.storage.session.set({ [sessionKey]: '# Draft toolbar' }),
+        chrome.storage.local.set({ [localKey]: [document] }),
+      ]),
+      { sessionKey: draftKey, localKey: 'miniMdLibrary', document: savedDocument },
+    )
+    await page.reload()
+    await page.locator('.ProseMirror').waitFor()
+    await page.locator('#tab-library').click()
+    await page.locator('.library-card-edit').click()
+
+    for (const width of [375, 768, 1280]) {
+      // When: saved-document actions are rendered at a supported viewport width.
+      await page.setViewportSize({ width, height: 900 })
+      const geometry = await measureToolbar(expectedSaved)
+      observations.saved.push({ width, geometry })
+
+      // Then: 375px uses the prescribed two rows; wider widths use one row.
+      assert.equal(geometry.rows.length, width === 375 ? 2 : 1, `saved toolbar row count is wrong at ${width}px`)
+      if (width === 375) {
+        assert.equal(Math.round(geometry.controls[0].rect.top), Math.round(geometry.controls[1].rect.top), 'copy actions must share the first saved row')
+        assert.ok(geometry.controls.slice(2).every((control) => Math.round(control.rect.top) === geometry.rows[1]), 'document actions must share the second saved row')
+        assert.ok(geometry.rows[0] < geometry.rows[1], 'copy actions must precede document actions')
+      }
+      assert.equal(geometry.bodyFits, true, `saved toolbar widens the body at ${width}px`)
+      assert.equal(geometry.toolbarFits, true, `saved toolbar scrolls at ${width}px`)
+      assert.deepEqual(geometry.overlaps, [], `saved toolbar controls overlap at ${width}px`)
+      for (const control of geometry.controls) {
+        assert.equal(control.text, control.label, `${control.selector} visible label is incomplete`)
+        assert.equal(control.accessibleName, control.label, `${control.selector} accessible name changed`)
+        assert.equal(control.clipped, false, `${control.selector} label or icon is clipped`)
+        assert.equal(Boolean(control.icon), control.hasIcon, `${control.selector} icon presence changed`)
+        assert.ok(control.rect.height >= 36, `${control.selector} is shorter than 36px`)
+        assert.ok(control.rect.left >= geometry.toolbar.left && control.rect.right <= geometry.toolbar.right, `${control.selector} escapes the toolbar`)
+      }
+    }
+    state.manual.toolbarRepair = observations
+  })
+
+  test('avoids a lone Korean word at line end while preserving CJK and long-token containment', async () => {
+    // Given: draft and saved modes contain the same Korean/Japanese/Chinese and unbroken-token stress text.
+    const page = state.page
+    const stressMarkdown = `${'긴 문장과 CJK 콘텐츠 '.repeat(28)}\n\n日本語の長い文章と中文内容用于换行检查。\n\nhttps://example.test/${'unbroken-token-'.repeat(90)}`
+    const savedDocument = {
+      id: '99999999-9999-4999-8999-999999999999',
+      markdown: stressMarkdown,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const modes = [
+      { name: 'draft', library: [], edit: false },
+      { name: 'saved', library: [savedDocument], edit: true },
+    ]
+    const observations = []
+
+    for (const mode of modes) {
+      await page.evaluate(
+        ({ sessionKey, localKey, markdown, library }) => Promise.all([
+          chrome.storage.session.set({ [sessionKey]: markdown }),
+          chrome.storage.local.set({ [localKey]: library }),
+        ]),
+        { sessionKey: draftKey, localKey: 'miniMdLibrary', markdown: stressMarkdown, library: mode.library },
+      )
+      await page.reload()
+      await page.locator('.ProseMirror').waitFor()
+      if (mode.edit) {
+        await page.locator('#tab-library').click()
+        await page.locator('.library-card-edit').click()
+      }
+      await page.waitForFunction(() => [...document.querySelectorAll('#editor-actions button:not([hidden])')].every((button) => !button.disabled))
+
+      for (const colorScheme of ['light', 'dark']) {
+        // When: the exact 375px stress paragraph is laid out by Chromium.
+        await page.emulateMedia({ colorScheme })
+        await page.setViewportSize({ width: 375, height: 900 })
+        await page.waitForFunction(
+          (expectedColor) => getComputedStyle(document.querySelector('#copy')).color === expectedColor,
+          colorScheme === 'light' ? expectedSemanticColors.light.ink : expectedSemanticColors.dark.ink,
+        )
+        await page.locator('#editor').evaluate((editor) => { editor.scrollTop = 0 })
+        const geometry = await page.locator('.ProseMirror').evaluate((editor) => {
+          const phrase = '긴 문장과'
+          const textNodes = []
+          const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT)
+          let node = walker.nextNode()
+          while (node) {
+            textNodes.push(node)
+            node = walker.nextNode()
+          }
+          const occurrences = textNodes.flatMap((textNode) => {
+            const results = []
+            let offset = textNode.textContent.indexOf(phrase)
+            while (offset >= 0) {
+              const first = document.createRange()
+              first.setStart(textNode, offset)
+              first.setEnd(textNode, offset + 1)
+              const following = document.createRange()
+              following.setStart(textNode, offset + 2)
+              following.setEnd(textNode, offset + phrase.length)
+              const firstRect = first.getBoundingClientRect()
+              const followingRect = following.getBoundingClientRect()
+              results.push({
+                first: { left: firstRect.left, right: firstRect.right, top: firstRect.top, bottom: firstRect.bottom },
+                following: { left: followingRect.left, right: followingRect.right, top: followingRect.top, bottom: followingRect.bottom },
+                split: Math.abs(firstRect.top - followingRect.top) > 1,
+              })
+              offset = textNode.textContent.indexOf(phrase, offset + phrase.length)
+            }
+            return results
+          })
+          const japanese = [...editor.querySelectorAll('p')].find((paragraph) => paragraph.textContent.includes('日本語'))
+          const chinese = [...editor.querySelectorAll('p')].find((paragraph) => paragraph.textContent.includes('中文内容'))
+          const longToken = [...editor.querySelectorAll('p')].find((paragraph) => paragraph.textContent.includes('unbroken-token-'))
+          const scrollOwner = document.querySelector('#editor')
+          const scrollOwnerStyle = getComputedStyle(scrollOwner)
+          const scrollbarStyle = getComputedStyle(scrollOwner, '::-webkit-scrollbar')
+          const scrollbarTrackStyle = getComputedStyle(scrollOwner, '::-webkit-scrollbar-track')
+          const scrollbarThumbStyle = getComputedStyle(scrollOwner, '::-webkit-scrollbar-thumb')
+          return {
+            bodyFits: document.body.scrollWidth <= document.body.clientWidth,
+            editorFits: editor.scrollWidth <= editor.clientWidth,
+            scrollOwner: {
+              offsetWidth: scrollOwner.offsetWidth,
+              clientWidth: scrollOwner.clientWidth,
+              scrollbarConsumption: scrollOwner.offsetWidth - scrollOwner.clientWidth,
+              scrollbarWidth: scrollOwnerStyle.scrollbarWidth,
+              renderedWidth: scrollbarStyle.width,
+              trackBackground: scrollbarTrackStyle.backgroundColor,
+              thumbBackground: scrollbarThumbStyle.backgroundColor,
+            },
+            wordBreak: getComputedStyle(editor).wordBreak,
+            lineBreak: getComputedStyle(editor).lineBreak,
+            wordSpacing: getComputedStyle(editor).wordSpacing,
+            rootLanguage: document.documentElement.lang,
+            occurrences,
+            japaneseFits: japanese.scrollWidth <= japanese.clientWidth,
+            chineseFits: chinese.scrollWidth <= chinese.clientWidth,
+            longTokenFits: longToken.scrollWidth <= longToken.clientWidth,
+          }
+        })
+        observations.push({ mode: mode.name, colorScheme, geometry })
+
+        // Then: no occurrence leaves `긴` alone at line end, and every stress language remains contained.
+        assert.equal(geometry.occurrences.length, 28)
+        assert.deepEqual(geometry.occurrences.filter((occurrence) => occurrence.split), [], `${mode.name} ${colorScheme} splits 긴 from the following 문장과: ${JSON.stringify(geometry)}`)
+        assert.equal(geometry.bodyFits, true, `${mode.name} ${colorScheme} CJK stress widens the body`)
+        assert.equal(geometry.editorFits, true, `${mode.name} ${colorScheme} CJK stress widens the editor`)
+        assert.equal(geometry.japaneseFits, true, `${mode.name} ${colorScheme} Japanese text overflows`)
+        assert.equal(geometry.chineseFits, true, `${mode.name} ${colorScheme} Chinese text overflows`)
+        assert.equal(geometry.longTokenFits, true, `${mode.name} ${colorScheme} long token overflows`)
+        assert.equal(geometry.scrollOwner.scrollbarConsumption, 6, `${mode.name} ${colorScheme} editor scrollbar consumes the wrong width`)
+        assert.equal(geometry.scrollOwner.renderedWidth, '6px', `${mode.name} ${colorScheme} editor scrollbar token is not rendered`)
+        assert.notEqual(geometry.scrollOwner.trackBackground, 'rgba(0, 0, 0, 0)', `${mode.name} ${colorScheme} scrollbar track is invisible`)
+        assert.notEqual(geometry.scrollOwner.thumbBackground, 'rgba(0, 0, 0, 0)', `${mode.name} ${colorScheme} scrollbar thumb is invisible`)
+        assert.notEqual(geometry.scrollOwner.thumbBackground, geometry.scrollOwner.trackBackground, `${mode.name} ${colorScheme} scrollbar thumb lacks contrast from its track`)
+        assert.equal(geometry.wordBreak, 'keep-all', `${mode.name} ${colorScheme} must preserve complete CJK words`)
+        assert.equal(geometry.wordSpacing, '2.25px', `${mode.name} ${colorScheme} must use the narrow semantic word spacing`)
+        await screenshot(page, `repair-${mode.name}-${colorScheme}-375x900.png`)
+      }
+
+      if (mode.name === 'draft') {
+        // When: keyboard and trackpad/wheel input scroll the same internal editor owner.
+        await page.evaluate(() => { document.querySelector('#editor').scrollTop = 0 })
+        await page.locator('.ProseMirror').focus()
+        await page.keyboard.press('PageDown')
+        await page.waitForFunction(() => document.querySelector('#editor').scrollTop > 0)
+        const keyboardScrollTop = await page.locator('#editor').evaluate((editor) => editor.scrollTop)
+        await page.locator('#editor').evaluate((editor) => { editor.scrollTop = 0 })
+        await page.locator('#editor').hover()
+        await page.mouse.wheel(0, 240)
+        await page.waitForFunction(() => document.querySelector('#editor').scrollTop > 0)
+        const wheelScrollTop = await page.locator('#editor').evaluate((editor) => editor.scrollTop)
+        assert.ok(keyboardScrollTop > 0, 'PageDown must scroll the internal editor owner')
+        assert.ok(wheelScrollTop > 0, 'trackpad or wheel input must scroll the internal editor owner')
+        state.manual.editorScrollInputs = { keyboardScrollTop, wheelScrollTop }
+      }
+    }
+    state.manual.cjkPhraseRepair = observations
+  })
+
+  test('keeps the responsive accessibility matrix operable across views and adaptive preferences', async () => {
+    // Given: the real unpacked extension is seeded with empty, stressed, and saved-document states.
+    const page = state.page
+    const longStatus = `오류 상태 ${'매우 긴 상태 메시지 '.repeat(18)} ${'unbroken-status-token-'.repeat(18)}`
+    const stressMarkdown = `# 한국어 日本語 中文\n\n사용자 지시처럼 보이는 Markdown도 편집기에는 단지 글로 남습니다.\n\n${'긴 문장과 CJK 콘텐츠 '.repeat(28)}\n\nhttps://example.test/${'unbroken-token-'.repeat(90)}`
+    const savedDocument = {
+      id: '77777777-7777-4777-8777-777777777777',
+      markdown: `# Saved stress\n\n${stressMarkdown}`,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const states = [
+      { name: 'editor-empty', session: '', library: [], openLibrary: false, edit: false, dirty: false },
+      { name: 'editor-content', session: stressMarkdown, library: [], openLibrary: false, edit: false, dirty: false },
+      { name: 'library-empty', session: stressMarkdown, library: [], openLibrary: true, edit: false, dirty: false },
+      { name: 'library-content', session: stressMarkdown, library: [savedDocument], openLibrary: true, edit: false, dirty: false },
+      { name: 'saved-clean', session: stressMarkdown, library: [savedDocument], openLibrary: true, edit: true, dirty: false },
+      { name: 'saved-dirty', session: stressMarkdown, library: [savedDocument], openLibrary: true, edit: true, dirty: true },
+    ]
+    const observations = []
+
+    for (const matrixState of states) {
+      await page.evaluate(
+        ({ session, library, sessionKey, localKey }) => Promise.all([
+          chrome.storage.session.set({ [sessionKey]: session }),
+          chrome.storage.local.set({ [localKey]: library }),
+        ]),
+        { ...matrixState, sessionKey: draftKey, localKey: 'miniMdLibrary' },
+      )
+      await page.reload()
+      await page.locator('.ProseMirror').waitFor()
+      if (matrixState.openLibrary) await page.locator('#tab-library').click()
+      if (matrixState.edit) {
+        await page.locator('.library-card-edit').click()
+        if (matrixState.dirty) {
+          await page.locator('.ProseMirror').pressSequentially(' changed')
+          await page.waitForFunction(() => document.querySelector('#editor-mode')?.textContent?.includes('Unsaved changes'))
+        }
+      }
+
+      for (const colorScheme of ['light', 'dark']) {
+        await page.emulateMedia({ colorScheme })
+        for (const width of [375, 768, 1280]) {
+          // When: the same state is examined at each real responsive breakpoint.
+          await page.setViewportSize({ width, height: 900 })
+          await page.evaluate(() => { document.querySelector('#status').textContent = '' })
+          const geometry = await page.evaluate(() => {
+            const rect = (element) => {
+              const box = element.getBoundingClientRect()
+              return { left: box.left, right: box.right, top: box.top, bottom: box.bottom, width: box.width, height: box.height }
+            }
+            const visibleControls = [...document.querySelectorAll('button:not([hidden])')]
+              .filter((button) => button.closest('[hidden]') === null && getComputedStyle(button).display !== 'none' && getComputedStyle(button).visibility !== 'hidden')
+              .map((button) => ({ id: button.id || button.className, rect: rect(button), outlineWidth: getComputedStyle(button).outlineWidth, outlineStyle: getComputedStyle(button).outlineStyle }))
+            const editor = document.querySelector('#editor')
+            const library = document.querySelector('#library-view')
+            const activeView = document.querySelector('#editor-view:not([hidden]), #library-view:not([hidden])')
+            const milkdown = document.querySelector('.milkdown')
+            const paper = document.querySelector('.ProseMirror')
+            const cjkPhrase = '편집기에는'
+            const cjkPhraseRects = (() => {
+              const walker = document.createTreeWalker(document.querySelector('.ProseMirror'), NodeFilter.SHOW_TEXT)
+              let textNode = walker.nextNode()
+              while (textNode) {
+                const offset = textNode.textContent.indexOf(cjkPhrase)
+                if (offset >= 0) {
+                  const range = document.createRange()
+                  range.setStart(textNode, offset)
+                  range.setEnd(textNode, offset + cjkPhrase.length)
+                  return [...range.getClientRects()].map((rangeRect) => rect({ getBoundingClientRect: () => rangeRect }))
+                }
+                textNode = walker.nextNode()
+              }
+              return []
+            })()
+            return {
+              bodyFits: document.body.scrollWidth <= document.body.clientWidth,
+              activeViewFits: activeView.scrollWidth <= activeView.clientWidth,
+              editorScrollOwner: getComputedStyle(editor).overflowY,
+              libraryScrollOwner: getComputedStyle(library).overflowY,
+              bodyOverflow: getComputedStyle(document.body).overflowY,
+              statusFits: document.querySelector('#status').scrollWidth <= document.querySelector('#status').clientWidth || getComputedStyle(document.querySelector('#status')).textOverflow === 'ellipsis',
+              statusText: document.querySelector('#status').textContent,
+              controlsReady: visibleControls.every((control) => !document.querySelector(`#${control.id}`)?.disabled),
+              emptyPaper: {
+                editorBottom: editor.getBoundingClientRect().bottom,
+                milkdownBottom: milkdown.getBoundingClientRect().bottom,
+                paperBottom: paper.getBoundingClientRect().bottom,
+                paperBackground: getComputedStyle(paper).backgroundColor,
+              },
+              controls: visibleControls,
+              contentFits: [...document.querySelectorAll('.ProseMirror, .library-card')].every((element) => element.scrollWidth <= element.clientWidth),
+              cjkPhraseRects,
+            }
+          })
+          observations.push({ state: matrixState.name, colorScheme, width, geometry })
+          assert.equal(geometry.bodyFits, true, `${matrixState.name} body overflows at ${width}px ${colorScheme}`)
+          assert.equal(geometry.activeViewFits, true, `${matrixState.name} active view overflows at ${width}px ${colorScheme}`)
+          assert.equal(geometry.bodyOverflow, 'hidden', 'the body must not own scrolling')
+          assert.equal(geometry.editorScrollOwner, 'auto', 'the Editor must own its vertical scroll')
+          assert.equal(geometry.libraryScrollOwner, 'auto', 'the Library must own its vertical scroll')
+          assert.equal(geometry.statusFits, true, 'long status must remain contained or ellipsized')
+          assert.equal(geometry.statusText, '', 'normal matrix captures must remain idle without injected status text')
+          assert.equal(geometry.controlsReady, true, 'normal matrix captures must wait for enabled controls')
+          assert.equal(geometry.contentFits, true, 'editor and Library card content must not overflow their owners')
+          if (matrixState.name === 'editor-content' && width === 375) {
+            assert.equal(geometry.cjkPhraseRects.length, 1, `${colorScheme} CJK noun-and-particle phrase must stay on one line: ${JSON.stringify(geometry.cjkPhraseRects)}`)
+          }
+          if (matrixState.name === 'editor-empty') {
+            assert.ok(geometry.emptyPaper.milkdownBottom >= geometry.emptyPaper.editorBottom - 1, `${colorScheme} Milkdown must fill the empty editor scrollport at ${width}px`)
+            assert.ok(geometry.emptyPaper.paperBottom >= geometry.emptyPaper.editorBottom - 1, `${colorScheme} paper background must fill the empty editor scrollport at ${width}px`)
+            assert.notEqual(geometry.emptyPaper.paperBackground, 'rgba(0, 0, 0, 0)', 'empty paper requires an opaque editor-surface background')
+          }
+          for (const control of geometry.controls) {
+            assert.ok(control.rect.width >= 36 && control.rect.height >= 36, `${control.id} falls below the normal 36px control target`)
+            assert.ok(control.rect.right <= width && control.rect.left >= 0, `${control.id} escapes the viewport`)
+          }
+        }
+      }
+    }
+
+    // When: the longest status is exercised outside the neutral capture matrix.
+    await page.evaluate((message) => { document.querySelector('#status').textContent = message }, longStatus)
+    const statusStress = await page.locator('#status').evaluate((node) => ({ text: node.textContent, fits: node.scrollWidth <= node.clientWidth || getComputedStyle(node).textOverflow === 'ellipsis' }))
+    assert.equal(statusStress.text, longStatus)
+    assert.equal(statusStress.fits, true, 'long status must be contained in its separate stress scenario')
+    await page.evaluate(() => { document.querySelector('#status').textContent = '' })
+
+    // When: forced keyboard focus traverses the worst-case saved toolbar.
+    await page.emulateMedia({ colorScheme: 'dark', reducedMotion: 'reduce' })
+    await page.setViewportSize({ width: 375, height: 900 })
+    await page.locator('#copy').focus()
+    for (const selector of ['#copy-compact', '#save-document', '#cancel-document', '#delete-document']) {
+      await page.keyboard.press('Tab')
+      const focus = await page.locator(selector).evaluate((node) => {
+        const style = getComputedStyle(node)
+        return { focused: document.activeElement === node, outlineWidth: style.outlineWidth, outlineStyle: style.outlineStyle, transitionDuration: style.transitionDuration, animationDuration: style.animationDuration }
+      })
+      assert.equal(focus.focused, true, `keyboard order must reach ${selector}`)
+      assert.equal(focus.outlineWidth, '2px', `${selector} needs a 2px focus indicator`)
+      assert.equal(focus.outlineStyle, 'solid', `${selector} needs a visible focus indicator`)
+      assert.ok(focus.transitionDuration.split(', ').every((duration) => Number.parseFloat(duration) <= 0.00001), `${selector} retains nonessential reduced-motion transition`)
+      assert.ok(focus.animationDuration.split(', ').every((duration) => Number.parseFloat(duration) <= 0.00001), `${selector} retains nonessential reduced-motion animation`)
+    }
+
+    // When: a genuine CSS zoom changes the 375px saved-document layout, rather than merely magnifying pixels.
+    await page.evaluate(() => { document.documentElement.style.zoom = '2' })
+    await page.waitForFunction(() => getComputedStyle(document.documentElement).zoom === '2')
+    try {
+      await page.locator('#copy').focus()
+      for (const selector of ['#copy-compact', '#save-document', '#cancel-document', '#delete-document']) {
+        await page.keyboard.press('Tab')
+        assert.equal(await page.locator(selector).evaluate((node) => document.activeElement === node), true, `zoomed keyboard order must reach ${selector}`)
+      }
+      const zoomGeometry = await page.evaluate(() => {
+        const zoom = Number.parseFloat(getComputedStyle(document.documentElement).zoom)
+        const viewportWidth = document.documentElement.clientWidth / zoom
+        const title = document.querySelector('.app-title')
+        const titleRect = title.getBoundingClientRect()
+        const controls = [...document.querySelectorAll('#copy, #copy-compact, #save-document, #cancel-document, #delete-document')].map((button) => {
+          const rect = button.getBoundingClientRect()
+          const style = getComputedStyle(button)
+          return { id: button.id, left: rect.left / zoom, right: rect.right / zoom, top: rect.top / zoom, bottom: rect.bottom / zoom, width: rect.width / zoom, height: rect.height / zoom, text: button.textContent.trim(), outlineWidth: style.outlineWidth, outlineStyle: style.outlineStyle }
+        })
+        const overlaps = controls.flatMap((control, index) => controls.slice(index + 1).flatMap((other) => control.left < other.right && control.right > other.left && control.top < other.bottom && control.bottom > other.top ? [[control.id, other.id]] : []))
+        return {
+          zoom,
+          viewportWidth,
+          bodyFits: document.body.scrollWidth <= document.body.clientWidth,
+          title: {
+            text: title.textContent,
+            clipped: title.scrollWidth > title.clientWidth,
+            left: titleRect.left / zoom,
+            right: titleRect.right / zoom,
+          },
+          controls,
+          overlaps,
+          toolbarRows: new Set(controls.map((control) => control.top)).size,
+        }
+      })
+      assert.equal(zoomGeometry.zoom, 2, 'CSS zoom must be the real 200% layout state')
+      assert.equal(zoomGeometry.bodyFits, true, 'CSS zoom must not introduce body horizontal overflow')
+      assert.equal(zoomGeometry.title.text, 'SideMarkDown', 'CSS zoom must preserve the complete product identity')
+      assert.equal(zoomGeometry.title.clipped, false, 'CSS zoom must not clip or ellipsize the product identity')
+      assert.ok(zoomGeometry.title.left >= 0 && zoomGeometry.title.right <= zoomGeometry.viewportWidth, 'CSS zoom must keep the complete product identity in view')
+      assert.ok(zoomGeometry.toolbarRows >= 2, 'saved toolbar must reflow under 200% CSS zoom')
+      assert.deepEqual(zoomGeometry.overlaps, [], 'zoomed saved toolbar controls must not overlap')
+      for (const control of zoomGeometry.controls) {
+        assert.ok(control.text.length > 0, `${control.id} must retain its visible text label under CSS zoom`)
+        assert.ok(control.width >= 36 && control.height >= 36, `${control.id} falls below the normal 36px target under CSS zoom`)
+        assert.ok(control.left >= 0 && control.right <= zoomGeometry.viewportWidth, `${control.id} escapes the effective CSS-zoom viewport`)
+      }
+    } finally {
+      await page.evaluate(() => { document.documentElement.style.zoom = '' })
+    }
+
+    // Then: every requested state/width/scheme has one observable matrix record.
+    assert.equal(observations.length, 36)
+    state.manual.responsiveMatrix = observations
+    await page.emulateMedia({ colorScheme: 'light', reducedMotion: 'no-preference' })
+    await page.setViewportSize({ width: 375, height: 900 })
+  })
+
   test('reports no page, worker, or request errors', async () => {
     const page = state.page; const raceValue = '__wait_for_draft_race__'
     await page.evaluate(({ key, value }) => {
@@ -551,4 +1411,142 @@ describe('unpacked SideMarkDown extension', { concurrency: false }, () => {
     writeFileSync(path.join(evidence, 'runtime-errors.json'), JSON.stringify(state.errors, null, 2))
     assert.deepEqual(state.errors, [])
   })
+
+  test('blocks Markdown-derived remote image requests from session and Library documents while retaining data images', async () => {
+    const page = state.page
+    const cspBlockedRequestAttempts = []
+    const externalResponses = []
+    const outboundRequestUrls = []
+    let requestCount = 0
+    const beacon = createServer((request, response) => {
+      requestCount += 1
+      outboundRequestUrls.push(request.url)
+      response.writeHead(200, { 'Content-Type': 'image/svg+xml' })
+      response.end('<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"/>')
+    })
+
+    mkdirSync(securityEvidence, { recursive: true })
+
+    await new Promise((resolve, reject) => {
+      beacon.once('error', reject)
+      beacon.listen(0, '127.0.0.1', resolve)
+    })
+
+    const address = beacon.address()
+    assert.ok(address && typeof address === 'object', 'the local image beacon must expose a TCP port')
+    const sessionImageUrl = `http://127.0.0.1:${address.port}/session-image.svg`
+    const libraryImageUrl = `http://127.0.0.1:${address.port}/library-image.svg`
+    const imageRequestListener = (request) => {
+      if (request.url() === sessionImageUrl || request.url() === libraryImageUrl) {
+        cspBlockedRequestAttempts.push(request.url())
+      }
+    }
+    const imageResponseListener = (response) => {
+      if (response.url() === sessionImageUrl || response.url() === libraryImageUrl) {
+        externalResponses.push(response.url())
+      }
+    }
+    page.on('request', imageRequestListener)
+    page.on('response', imageResponseListener)
+    state.expectedCspBlockedUrls.add(sessionImageUrl)
+    state.expectedCspBlockedUrls.add(libraryImageUrl)
+
+    try {
+      await page.evaluate(
+        ({ sessionKey, localKey, markdown, library }) => Promise.all([
+          chrome.storage.session.set({ [sessionKey]: markdown }),
+          chrome.storage.local.set({ [localKey]: library }),
+        ]),
+        {
+          sessionKey: draftKey,
+          localKey: 'miniMdLibrary',
+          markdown: `![Untrusted session image](${sessionImageUrl})`,
+          library: [{
+            id: '22222222-2222-4222-8222-222222222222',
+            markdown: `![Untrusted Library image](${libraryImageUrl})`,
+            createdAt: 1,
+            updatedAt: 1,
+          }],
+        },
+      )
+      await page.reload()
+      await page.waitForFunction(
+        () => document.querySelector('.ProseMirror img[alt="Untrusted session image"]')?.complete,
+      )
+      await page.screenshot({ path: path.join(securityEvidence, 'session-remote-csp-block.png'), fullPage: true })
+
+      await page.locator('#tab-library').click()
+      await page.locator('.library-card-edit').click()
+      await page.waitForFunction(
+        () => document.querySelector('.ProseMirror img[alt="Untrusted Library image"]')?.complete,
+      )
+      await page.screenshot({ path: path.join(securityEvidence, 'library-remote-csp-block.png'), fullPage: true })
+
+      await page.evaluate(
+        ({ key, markdown }) => chrome.storage.session.set({ [key]: markdown }),
+        { key: draftKey, markdown: `![Data fixture](${themeImageDataUrl})` },
+      )
+      await page.reload()
+      const dataImage = page.locator('.ProseMirror img[alt="Data fixture"]')
+      await dataImage.waitFor()
+      await dataImage.click()
+      await page.waitForFunction(
+        () => document.querySelector('.ProseMirror img[alt="Data fixture"]')?.classList.contains('ProseMirror-selectednode'),
+      )
+      await page.screenshot({ path: path.join(securityEvidence, 'data-image-rendered-selected.png'), fullPage: true })
+      const dataImageState = await dataImage.evaluate((image) => ({
+        complete: image.complete,
+        selected: image.classList.contains('ProseMirror-selectednode'),
+        src: image.currentSrc,
+      }))
+      const localShellAssets = await page.evaluate(() => Array.from(document.styleSheets)
+        .map((sheet) => sheet.href)
+        .filter((href) => href.startsWith(location.origin) && href.endsWith('.css')))
+
+      state.manual.remoteImageBoundary = {
+        requestCount,
+        outboundRequestUrls,
+        externalResponses,
+        cspBlockedRequestAttempts,
+        cspBlockedFailures: state.expectedCspBlockedFailures,
+        cspConsoleErrors: state.expectedCspConsoleErrors,
+        dataImageState,
+        localShellAssets,
+      }
+      assert.equal(requestCount, 0, `remote Markdown image requests reached the local beacon: ${requestCount}`)
+      assert.deepEqual(outboundRequestUrls, [], `beacon received unexpected remote request paths: ${JSON.stringify(outboundRequestUrls)}`)
+      assert.deepEqual(externalResponses, [], `runtime received unexpected remote image responses: ${JSON.stringify(externalResponses)}`)
+      assert.deepEqual(
+        cspBlockedRequestAttempts.sort(),
+        [sessionImageUrl, libraryImageUrl].sort(),
+        'Chromium must classify both hostile image sources as CSP-blocked request attempts before network dispatch',
+      )
+      assert.deepEqual(
+        state.expectedCspBlockedFailures.map((failure) => failure.url).sort(),
+        [sessionImageUrl, libraryImageUrl].sort(),
+        'both hostile image request failures must be captured as expected CSP instrumentation',
+      )
+      assert.deepEqual(dataImageState, {
+        complete: true,
+        selected: true,
+        src: themeImageDataUrl,
+      })
+      assert.ok(localShellAssets.length > 0, 'the side-panel CSS bundle must continue to load from the extension origin')
+      assert.deepEqual(state.errors, [], 'only the expected CSP blocks may occur during hostile image handling')
+    } finally {
+      page.off('request', imageRequestListener)
+      page.off('response', imageResponseListener)
+      await new Promise((resolve, reject) => beacon.close((error) => error ? reject(error) : resolve()))
+      await page.evaluate(
+        ({ sessionKey, localKey, markdown }) => Promise.all([
+          chrome.storage.session.set({ [sessionKey]: markdown }),
+          chrome.storage.local.set({ [localKey]: [] }),
+        ]),
+        { sessionKey: draftKey, localKey: 'miniMdLibrary', markdown: sourceMarkdown },
+      )
+      await page.reload()
+      await page.locator('.ProseMirror code').waitFor()
+    }
+  })
+
 })

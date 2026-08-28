@@ -56,6 +56,29 @@ test('parses only valid persisted library documents', async () => {
   assert.deepEqual(parseLibraryDocuments([{ ...documents[0], id: 'not-a-uuid' }]), [])
 })
 
+test('accepts the maximum JS Date timestamp and rejects the next millisecond', async () => {
+  // Given
+  const { parseLibraryDocuments } = await importLibraryModule()
+  const maximumDateTimestamp = 8_640_000_000_000_000
+  const document = {
+    id: '9bf6130b-065d-41fe-b4ee-c00a2d435620',
+    markdown: '# Date boundary',
+    createdAt: maximumDateTimestamp,
+    updatedAt: maximumDateTimestamp,
+  }
+
+  // When / Then
+  assert.deepEqual(parseLibraryDocuments([document]), [document])
+  assert.deepEqual(
+    parseLibraryDocuments([{ ...document, createdAt: maximumDateTimestamp + 1 }]),
+    [],
+  )
+  assert.deepEqual(
+    parseLibraryDocuments([{ ...document, updatedAt: maximumDateTimestamp + 1 }]),
+    [],
+  )
+})
+
 test('derives card title and preview from the first Markdown line', async () => {
   // Given
   const { getLibraryCardContent } = await importLibraryModule()
@@ -74,6 +97,20 @@ test('derives card title and preview from the first Markdown line', async () => 
     { title: null, preview: '## Not an H1\nBody' },
   )
   assert.deepEqual(getLibraryCardContent(''), { title: null, preview: '' })
+})
+
+test('formats Library metadata as a stable absolute English date', async () => {
+  // Given
+  const { formatLibraryUpdatedAt } = await importLibraryModule()
+  const updatedAt = Date.UTC(2026, 7, 25, 12)
+
+  // When / Then
+  assert.equal(formatLibraryUpdatedAt(updatedAt), 'Aug 25, 2026')
+  assert.equal(
+    formatLibraryUpdatedAt(updatedAt),
+    formatLibraryUpdatedAt(updatedAt + 60 * 60 * 1_000),
+    'metadata must be a date, not a relative clock-derived phrase',
+  )
 })
 
 test('creates a new document for every draft save, including duplicate Markdown', async () => {

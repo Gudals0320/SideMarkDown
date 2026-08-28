@@ -12,11 +12,11 @@ import { history } from '@milkdown/kit/plugin/history'
 import { listener, listenerCtx } from '@milkdown/kit/plugin/listener'
 import { commonmark } from '@milkdown/kit/preset/commonmark'
 import { getMarkdown, replaceAll } from '@milkdown/kit/utils'
-import { nord } from '@milkdown/theme-nord'
 import { inlineCodeCleanupPlugin } from './inline-code-cleanup'
 import {
   createLibraryDocument,
   deleteLibraryDocument,
+  formatLibraryUpdatedAt,
   getLibraryCardContent,
   libraryDocumentIdSchema,
   parseLibraryDocuments,
@@ -30,7 +30,6 @@ import {
   normalizeMarkdownForCopy,
 } from './markdown-copy'
 import '@milkdown/kit/prose/view/style/prosemirror.css'
-import '@milkdown/theme-nord/style.css'
 import './styles.css'
 
 const initialMarkdown = ''
@@ -83,6 +82,9 @@ const deleteDocumentButton =
 const editorModeIndicator = requireElement<HTMLElement>('#editor-mode')
 const libraryList = requireElement<HTMLElement>('#library-list')
 const libraryEmpty = requireElement<HTMLElement>('#library-empty')
+const libraryEmptyGoToEditor = requireElement<HTMLButtonElement>(
+  '#library-empty-go-to-editor',
+)
 const status = requireElement<HTMLElement>('#status')
 
 type EditorMode =
@@ -95,6 +97,7 @@ type EditorMode =
     }
 
 type PanelView = 'editor' | 'library'
+type StatusKind = 'success' | 'error'
 type LibraryMutation = (
   documents: readonly LibraryDocument[],
 ) => readonly LibraryDocument[]
@@ -109,7 +112,32 @@ let statusTimer: number | undefined
 let pendingSessionDraft: string | undefined
 let sessionDraftWriteInFlight = false
 let suppressEditorUpdate = false
+let draftWasEdited = false
 let libraryMutationQueue: Promise<void> = Promise.resolve()
+let savedDocumentLifecycleGeneration = 0
+
+const advanceSavedDocumentLifecycle = (): number => {
+  savedDocumentLifecycleGeneration += 1
+  return savedDocumentLifecycleGeneration
+}
+
+const isCurrentSavedDocumentOperation = (
+  operationGeneration: number,
+  documentId: LibraryDocumentId,
+): boolean => {
+  const activeMode = editorMode
+  switch (activeMode.kind) {
+    case 'draft':
+      return false
+    case 'saved-document':
+      return (
+        operationGeneration === savedDocumentLifecycleGeneration &&
+        activeMode.documentId === documentId
+      )
+    default:
+      return assertNever(activeMode)
+  }
+}
 
 for (const button of [
   copyButton,
@@ -125,12 +153,12 @@ for (const button of [
 editorTab.disabled = true
 libraryTab.disabled = true
 
-const setStatus = (message: string) => {
+const setStatus = (message: string, kind: StatusKind = 'success') => {
   status.textContent = message
   if (statusTimer) window.clearTimeout(statusTimer)
   statusTimer = window.setTimeout(() => {
     status.textContent = ''
-  }, 1_400)
+  }, kind === 'success' ? 2_500 : 5_000)
 }
 
 const logWarning = (message: string, error: unknown) => {
@@ -161,7 +189,6 @@ const loadLibraryDocuments = async (): Promise<readonly LibraryDocument[]> => {
   } catch (error) {
     // no-excuse-ok: catch -- extension storage is a top-level UI boundary.
     logWarning('Failed to load prompt Library.', error)
-    setStatus('Library failed to load')
     return []
   }
 }
@@ -240,6 +267,8 @@ const setPanelView = (view: PanelView) => {
   editorActions.hidden = !editorIsActive
   editorTab.setAttribute('aria-selected', String(editorIsActive))
   libraryTab.setAttribute('aria-selected', String(!editorIsActive))
+  editorTab.tabIndex = editorIsActive ? 0 : -1
+  libraryTab.tabIndex = editorIsActive ? -1 : 0
   if (!editorIsActive) renderLibrary()
 }
 
@@ -250,13 +279,25 @@ const setDocumentActionVisibility = (editingSavedDocument: boolean) => {
   for (const element of document.querySelectorAll<HTMLElement>('.document-action')) {
     element.hidden = !editingSavedDocument
   }
+  editorActions.dataset.mode = editingSavedDocument ? 'saved-document' : 'draft'
   editorModeIndicator.hidden = !editingSavedDocument
+}
+
+const renderSavedDocumentContext = () => {
+  if (editorMode.kind !== 'saved-document') {
+    editorModeIndicator.hidden = true
+    return
+  }
+
+  editorModeIndicator.hidden = false
+  editorModeIndicator.textContent = `Editing saved document — ${editorMode.isDirty ? 'Unsaved changes' : 'Saved'}`
 }
 
 const replaceEditorMarkdown = (markdown: string) => {
   if (!editor) return
 
   suppressEditorUpdate = true
+  draftWasEdited = false
   currentMarkdown = markdown
   try {
     editor.action(replaceAll(markdown))
@@ -266,8 +307,10 @@ const replaceEditorMarkdown = (markdown: string) => {
 }
 
 const restoreDraftEditor = () => {
+  advanceSavedDocumentLifecycle()
   editorMode = { kind: 'draft' }
   setDocumentActionVisibility(false)
+  renderSavedDocumentContext()
   replaceEditorMarkdown(sessionDraft)
 }
 
@@ -282,6 +325,7 @@ const editLibraryDocument = (documentId: LibraryDocumentId) => {
   )
   if (!selectedDocument) return
 
+  advanceSavedDocumentLifecycle()
   editorMode = {
     kind: 'saved-document',
     documentId,
@@ -295,25 +339,52 @@ const editLibraryDocument = (documentId: LibraryDocumentId) => {
     baselineMarkdown: editor?.action(getMarkdown()) ?? selectedDocument.markdown,
   }
   setPanelView('editor')
+  renderSavedDocumentContext()
   editorRoot.querySelector<HTMLElement>('.ProseMirror')?.focus()
 }
 
 const createEditIcon = (): SVGSVGElement => {
   const namespace = 'http://www.w3.org/2000/svg'
   const icon = document.createElementNS(namespace, 'svg')
-  icon.setAttribute('viewBox', '0 0 24 24')
+  icon.setAttribute('width', '16')
+  icon.setAttribute('height', '16')
+  icon.setAttribute('viewBox', '0 0 16 16')
   icon.setAttribute('fill', 'none')
   icon.setAttribute('stroke', 'currentColor')
-  icon.setAttribute('stroke-width', '2')
+  icon.setAttribute('stroke-width', '1.75')
   icon.setAttribute('stroke-linecap', 'round')
   icon.setAttribute('stroke-linejoin', 'round')
   icon.setAttribute('aria-hidden', 'true')
   const path = document.createElementNS(namespace, 'path')
   path.setAttribute(
     'd',
-    'M12 20h9 M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z',
+    'M8.5 13.5H14 M10.8 2.8a1.5 1.5 0 0 1 2.1 2.1L5.6 12.2 3 13l.8-2.6Z',
   )
   icon.appendChild(path)
+  return icon
+}
+
+const createCopyIcon = (): SVGSVGElement => {
+  const namespace = 'http://www.w3.org/2000/svg'
+  const icon = document.createElementNS(namespace, 'svg')
+  icon.setAttribute('width', '16')
+  icon.setAttribute('height', '16')
+  icon.setAttribute('viewBox', '0 0 16 16')
+  icon.setAttribute('fill', 'none')
+  icon.setAttribute('stroke', 'currentColor')
+  icon.setAttribute('stroke-width', '1.75')
+  icon.setAttribute('stroke-linecap', 'round')
+  icon.setAttribute('stroke-linejoin', 'round')
+  icon.setAttribute('aria-hidden', 'true')
+  const front = document.createElementNS(namespace, 'rect')
+  front.setAttribute('x', '5.25')
+  front.setAttribute('y', '2.25')
+  front.setAttribute('width', '7')
+  front.setAttribute('height', '8')
+  front.setAttribute('rx', '1')
+  const back = document.createElementNS(namespace, 'path')
+  back.setAttribute('d', 'M3.75 5.75h-1a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1v-1')
+  icon.append(front, back)
   return icon
 }
 
@@ -342,17 +413,30 @@ function renderLibrary() {
       copy.appendChild(title)
     }
 
+    const metadata = document.createElement('time')
+    const formattedUpdatedAt = formatLibraryUpdatedAt(libraryDocument.updatedAt)
+    metadata.className = 'library-card-metadata'
+    metadata.dateTime = new Date(libraryDocument.updatedAt).toISOString()
+    metadata.setAttribute('aria-label', `Updated ${formattedUpdatedAt}`)
+    metadata.textContent = `Updated ${formattedUpdatedAt}`
+    copy.appendChild(metadata)
+
     const preview = document.createElement('p')
     preview.className = 'library-card-preview'
     preview.textContent = content.preview
     copy.appendChild(preview)
+
+    const copyAction = document.createElement('span')
+    copyAction.className = 'library-card-copy-action'
+    copyAction.append(createCopyIcon(), document.createTextNode('Copy'))
+    copy.appendChild(copyAction)
     copy.addEventListener('click', () => {
       void writeClipboard(libraryDocument.markdown)
         .then(() => setStatus('Copied'))
         .catch((error: unknown) => {
           // no-excuse-ok: catch -- click handler reports clipboard boundary failure.
           logWarning('Failed to copy saved document.', error)
-          setStatus('Copy failed')
+          setStatus('Copy failed', 'error')
         })
     })
 
@@ -382,12 +466,15 @@ const createEditor = async () => {
   libraryDocuments = loadedLibraryDocuments
 
   editor = await Editor.make()
-    .config(nord)
     .config((ctx) => {
       ctx.set(rootCtx, editorRoot)
       ctx.set(defaultValueCtx, loadedSessionDraft)
       ctx.update(editorViewOptionsCtx, (options) => ({
         ...options,
+        attributes: {
+          ...options.attributes,
+          'data-placeholder': 'Start writing…',
+        },
         clipboardTextSerializer: (slice) => {
           const doc = ctx
             .get(schemaCtx)
@@ -412,6 +499,7 @@ const createEditor = async () => {
               ...activeMode,
               isDirty: markdown !== activeMode.baselineMarkdown,
             }
+            renderSavedDocumentContext()
             break
           default:
             assertNever(activeMode)
@@ -442,11 +530,7 @@ const createEditor = async () => {
   setPanelView(currentView)
 }
 
-editorTab.addEventListener('click', () => {
-  setPanelView('editor')
-})
-
-libraryTab.addEventListener('click', () => {
+const activateLibraryTab = () => {
   const activeMode = editorMode
   switch (activeMode.kind) {
     case 'draft':
@@ -458,6 +542,8 @@ libraryTab.addEventListener('click', () => {
         (activeMode.isDirty || liveMarkdown !== activeMode.baselineMarkdown) &&
         !window.confirm('Discard unsaved changes to this saved document?')
       ) {
+        setPanelView('editor')
+        editorTab.focus()
         return
       }
       finishSavedDocumentEditing()
@@ -465,6 +551,54 @@ libraryTab.addEventListener('click', () => {
     default:
       assertNever(activeMode)
   }
+}
+
+const focusTab = (tab: HTMLButtonElement) => {
+  tab.focus()
+}
+
+for (const tab of [editorTab, libraryTab]) {
+  tab.addEventListener('keydown', (event) => {
+    switch (event.key) {
+      case 'ArrowLeft':
+      case 'ArrowRight':
+        event.preventDefault()
+        focusTab(tab === editorTab ? libraryTab : editorTab)
+        break
+      case 'Home':
+        event.preventDefault()
+        focusTab(editorTab)
+        break
+      case 'End':
+        event.preventDefault()
+        focusTab(libraryTab)
+        break
+      case 'Enter':
+      case ' ':
+        event.preventDefault()
+        if (tab === editorTab) setPanelView('editor')
+        else activateLibraryTab()
+        break
+    }
+  })
+}
+
+editorTab.addEventListener('click', () => {
+  setPanelView('editor')
+})
+
+libraryEmptyGoToEditor.addEventListener('click', () => {
+  setPanelView('editor')
+  editorRoot.querySelector<HTMLElement>('.ProseMirror')?.focus()
+})
+
+libraryTab.addEventListener('click', () => {
+  activateLibraryTab()
+})
+
+editorRoot.addEventListener('input', () => {
+  if (!editor || suppressEditorUpdate || editorMode.kind !== 'draft') return
+  draftWasEdited = true
 })
 
 copyButton.addEventListener('click', async () => {
@@ -479,7 +613,7 @@ copyButton.addEventListener('click', async () => {
   } catch (error) {
     // no-excuse-ok: catch -- click handler reports clipboard boundary failure.
     logWarning('Failed to copy Markdown.', error)
-    setStatus('Copy failed')
+    setStatus('Copy failed', 'error')
   }
 })
 
@@ -507,7 +641,7 @@ compactCopyButton.addEventListener('click', async () => {
   } catch (error) {
     // no-excuse-ok: catch -- click handler reports clipboard boundary failure.
     logWarning('Failed to copy compact Markdown.', error)
-    setStatus('Copy failed')
+    setStatus('Copy failed', 'error')
   }
 })
 
@@ -516,7 +650,7 @@ clearButton.addEventListener('click', () => {
   replaceEditorMarkdown('')
   sessionDraft = ''
   persistSessionDraft('')
-  setStatus('Cleared')
+  setStatus('Draft cleared')
 })
 
 saveDraftButton.addEventListener('click', async () => {
@@ -524,7 +658,9 @@ saveDraftButton.addEventListener('click', async () => {
 
   try {
     const id = libraryDocumentIdSchema.parse(crypto.randomUUID())
-    const markdown = currentMarkdown
+    const markdown = draftWasEdited
+      ? (editor.action(getMarkdown()) ?? currentMarkdown)
+      : currentMarkdown
     await mutateLibraryDocuments((documents) =>
       createLibraryDocument({
         documents,
@@ -536,11 +672,11 @@ saveDraftButton.addEventListener('click', async () => {
         ),
       }),
     )
-    setStatus('Saved')
+    setStatus('Saved to Library')
   } catch (error) {
     // no-excuse-ok: catch -- click handler reports local storage failure.
     logWarning('Failed to save a new Library document.', error)
-    setStatus('Save failed')
+    setStatus('Save failed', 'error')
   }
 })
 
@@ -552,10 +688,12 @@ saveDocumentButton.addEventListener('click', async () => {
     case 'draft':
       return
     case 'saved-document':
+      const operationGeneration = advanceSavedDocumentLifecycle()
       try {
         const markdown = editor.action(getMarkdown()) ?? currentMarkdown
-        await mutateLibraryDocuments((documents) =>
-          updateLibraryDocument({
+        let documentWasUpdated = false
+        await mutateLibraryDocuments((documents) => {
+          const updatedDocuments = updateLibraryDocument({
             documents,
             id: activeMode.documentId,
             markdown,
@@ -563,14 +701,43 @@ saveDocumentButton.addEventListener('click', async () => {
               Date.now(),
               (documents[0]?.updatedAt ?? -1) + 1,
             ),
-          }),
-        )
-        finishSavedDocumentEditing()
-        setStatus('Saved')
+          })
+          documentWasUpdated = updatedDocuments !== documents
+          return updatedDocuments
+        })
+        if (
+          !isCurrentSavedDocumentOperation(
+            operationGeneration,
+            activeMode.documentId,
+          )
+        ) {
+          return
+        }
+        if (!documentWasUpdated) {
+          finishSavedDocumentEditing()
+          setStatus('Save failed', 'error')
+          return
+        }
+        const liveMarkdown = editor.action(getMarkdown()) ?? currentMarkdown
+        if (liveMarkdown !== markdown) return
+        editorMode = {
+          ...activeMode,
+          baselineMarkdown: markdown,
+          isDirty: false,
+        }
+        renderSavedDocumentContext()
+        setStatus('Changes saved')
       } catch (error) {
         // no-excuse-ok: catch -- click handler reports local storage failure.
         logWarning('Failed to update the Library document.', error)
-        setStatus('Save failed')
+        if (
+          isCurrentSavedDocumentOperation(
+            operationGeneration,
+            activeMode.documentId,
+          )
+        ) {
+          setStatus('Save failed', 'error')
+        }
       }
       break
     default:
@@ -587,22 +754,38 @@ deleteDocumentButton.addEventListener('click', async () => {
   if (editorMode.kind !== 'saved-document') return
   if (!window.confirm('Delete this saved document permanently?')) return
 
+  const activeMode = editorMode
+  const operationGeneration = advanceSavedDocumentLifecycle()
   try {
-    const documentId = editorMode.documentId
     await mutateLibraryDocuments((documents) =>
-      deleteLibraryDocument(documents, documentId),
+      deleteLibraryDocument(documents, activeMode.documentId),
     )
+    if (
+      !isCurrentSavedDocumentOperation(
+        operationGeneration,
+        activeMode.documentId,
+      )
+    ) {
+      return
+    }
     finishSavedDocumentEditing()
-    setStatus('Deleted')
+    setStatus('Document deleted')
   } catch (error) {
     // no-excuse-ok: catch -- click handler reports local storage failure.
     logWarning('Failed to delete the Library document.', error)
-    setStatus('Delete failed')
+    if (
+      isCurrentSavedDocumentOperation(
+        operationGeneration,
+        activeMode.documentId,
+      )
+    ) {
+      setStatus('Delete failed', 'error')
+    }
   }
 })
 
 createEditor().catch((error: unknown) => {
   // no-excuse-ok: catch -- application bootstrap is the top-level UI boundary.
   logWarning('Failed to create the editor.', error)
-  setStatus('Editor failed to load')
+  setStatus('Editor failed to load', 'error')
 })

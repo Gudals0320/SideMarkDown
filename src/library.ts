@@ -6,15 +6,23 @@ export const libraryDocumentSchema = z
   .object({
     id: libraryDocumentIdSchema,
     markdown: z.string(),
-    createdAt: z.number().int().nonnegative(),
-    updatedAt: z.number().int().nonnegative(),
+    createdAt: z.number().int().nonnegative().max(8_640_000_000_000_000),
+    updatedAt: z.number().int().nonnegative().max(8_640_000_000_000_000),
   })
   .strict()
 
 const libraryDocumentsSchema = z.array(libraryDocumentSchema)
+const libraryUpdatedDateFormatter = new Intl.DateTimeFormat('en-US', {
+  year: 'numeric',
+  month: 'short',
+  day: 'numeric',
+})
 
 export type LibraryDocumentId = z.infer<typeof libraryDocumentIdSchema>
 export type LibraryDocument = z.infer<typeof libraryDocumentSchema>
+
+export const formatLibraryUpdatedAt = (updatedAt: number): string =>
+  libraryUpdatedDateFormatter.format(new Date(updatedAt))
 
 export type LibraryCardContent = {
   readonly title: string | null
