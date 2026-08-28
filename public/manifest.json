@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "SideMarkDown",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "A minimal Typora-like Markdown draft editor in Chrome side panel.",
   "minimum_chrome_version": "114",
   "permissions": ["sidePanel", "storage"],
