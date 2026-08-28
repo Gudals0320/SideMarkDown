@@ -8,6 +8,13 @@ import { chromium } from 'playwright'
 const root = path.resolve(import.meta.dirname, '..')
 const dist = path.join(root, 'dist')
 const evidence = path.join(root, '.omo', 'evidence', 'issue-5')
+const savedLifecycleEvidence = path.join(
+  root,
+  '.omo',
+  'evidence',
+  'sidemarkdown-editor-redesign',
+  'saved-lifecycle-race',
+)
 const sessionDraftKey = 'miniMdSessionDraft'
 const libraryKey = 'miniMdLibrary'
 const titledMarkdown = '# Saved title\nFirst preview line\nSecond preview line'
@@ -89,6 +96,44 @@ const waitForLibraryLength = (page, expectedLength, timeout = 5_000) =>
     { key: libraryKey, expectedLength, timeout },
   )
 
+const waitForSessionMarkdown = (page, expectedMarkdown, timeout = 5_000) =>
+  page.evaluate(
+    ({ key, expectedMarkdown, timeout }) =>
+      new Promise((resolve, reject) => {
+        let listening = false
+        let settled = false
+        let timer
+        const settle = (callback, result) => {
+          if (settled) return
+          settled = true
+          window.clearTimeout(timer)
+          if (listening) chrome.storage.onChanged.removeListener(listener)
+          callback(result)
+        }
+        const listener = (changes, areaName) => {
+          if (
+            areaName === 'session' &&
+            changes[key]?.newValue === expectedMarkdown
+          ) {
+            settle(resolve, changes[key].newValue)
+          }
+        }
+        timer = window.setTimeout(
+          () => settle(reject, new Error('Timed out waiting for session Markdown change.')),
+          timeout,
+        )
+        listening = true
+        chrome.storage.onChanged.addListener(listener)
+        chrome.storage.session.get(key).then(
+          (stored) => {
+            if (stored[key] === expectedMarkdown) settle(resolve, stored[key])
+          },
+          (error) => settle(reject, error),
+        )
+      }),
+    { key: sessionDraftKey, expectedMarkdown, timeout },
+  )
+
 const setDraft = async (page, markdown) => {
   await page.evaluate(
     ({ key, markdown }) => chrome.storage.session.set({ [key]: markdown }),
@@ -118,6 +163,99 @@ const screenshot = async (page, name) => {
     )
     await page.screenshot({ path: path.join(evidence, name), fullPage: true })
   }
+}
+
+const installLibraryWriteGate = (page) =>
+  page.evaluate((key) => {
+    const originalSet = chrome.storage.local.set.bind(chrome.storage.local)
+    const calls = []
+    const releases = []
+
+    chrome.storage.local.set = async (items) => {
+      const index = calls.length
+      let release
+      const gate = new Promise((resolve) => {
+        release = resolve
+      })
+      calls.push({
+        index: index + 1,
+        entered: true,
+        released: false,
+        completed: false,
+        documents: structuredClone(items[key] ?? null),
+      })
+      releases.push(release)
+      await gate
+      calls[index].released = true
+      await originalSet(items)
+      calls[index].completed = true
+    }
+
+    window.__savedLifecycleWriteGate = {
+      release: (number) => releases[number - 1]?.(),
+      releaseAll: () => {
+        for (const release of releases) release()
+      },
+      restore: () => {
+        chrome.storage.local.set = originalSet
+        delete window.__savedLifecycleWriteGate
+      },
+      snapshot: () => structuredClone(calls),
+    }
+  }, libraryKey)
+
+const waitForLibraryWriteBoundary = (page, boundary, count) =>
+  page.waitForFunction(
+    ({ boundary, count }) => {
+      const calls = window.__savedLifecycleWriteGate?.snapshot() ?? []
+      return calls.filter((call) => call[boundary]).length >= count
+    },
+    { boundary, count },
+  )
+
+const releaseLibraryWrite = (page, number) =>
+  page.evaluate((number) => window.__savedLifecycleWriteGate.release(number), number)
+
+const restoreLibraryWriteGate = (page) =>
+  page.evaluate(() => {
+    const gate = window.__savedLifecycleWriteGate
+    gate?.releaseAll()
+    gate?.restore()
+  })
+
+const savedLifecycleSnapshot = (page, scenarioGeneration, documentId) =>
+  page.evaluate(
+    async ({ sessionKey, localKey, scenarioGeneration, documentId }) => {
+      const [session, local] = await Promise.all([
+        chrome.storage.session.get(sessionKey),
+        chrome.storage.local.get(localKey),
+      ])
+      return {
+        scenarioGeneration,
+        documentId,
+        actionMode: document.querySelector('#editor-actions')?.dataset.mode,
+        editorModeText: document.querySelector('#editor-mode')?.textContent,
+        editorModeHidden: document.querySelector('#editor-mode')?.hidden,
+        editorSelected: document.querySelector('#tab-editor')?.getAttribute('aria-selected'),
+        librarySelected: document.querySelector('#tab-library')?.getAttribute('aria-selected'),
+        editorHidden: document.querySelector('#editor-view')?.hidden,
+        libraryHidden: document.querySelector('#library-view')?.hidden,
+        editorText: document.querySelector('.ProseMirror')?.textContent,
+        status: document.querySelector('#status')?.textContent,
+        sessionMarkdown: session[sessionKey] ?? null,
+        library: local[localKey] ?? [],
+        storageWrites: window.__savedLifecycleWriteGate?.snapshot() ?? [],
+      }
+    },
+    { sessionKey: sessionDraftKey, localKey: libraryKey, scenarioGeneration, documentId },
+  )
+
+const writeSavedLifecycleTrace = (name, trace) => {
+  mkdirSync(savedLifecycleEvidence, { recursive: true })
+  writeFileSync(
+    path.join(savedLifecycleEvidence, name),
+    `${JSON.stringify(trace, null, 2)}\n`,
+  )
 }
 
 describe('persistent prompt Library', { concurrency: false }, () => {
@@ -1027,6 +1165,277 @@ describe('persistent prompt Library', { concurrency: false }, () => {
       '# Preserved session draft',
     )
     await state.page.clock.resume()
+  })
+
+  test('keeps the restored draft active when a delayed saved-document update finishes after Cancel', async () => {
+    // Given
+    const savedDocument = {
+      id: '77777777-7777-4777-8777-777777777777',
+      markdown: '# Delayed cancel source',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const sessionMarkdown = '# Cancel must restore this draft'
+    await state.page.evaluate(
+      ({ sessionKey, localKey, sessionMarkdown, savedDocument }) => Promise.all([
+        chrome.storage.session.set({ [sessionKey]: sessionMarkdown }),
+        chrome.storage.local.set({ [localKey]: [savedDocument] }),
+      ]),
+      { sessionKey: sessionDraftKey, localKey: libraryKey, sessionMarkdown, savedDocument },
+    )
+    await state.page.reload()
+    await state.page.locator('.ProseMirror').waitFor()
+    await state.page.locator('#tab-library').click()
+    await state.page.locator('.library-card-edit').click()
+    await state.page.locator('.ProseMirror').press('End')
+    await state.page.locator('.ProseMirror').pressSequentially(' saved first')
+    await installLibraryWriteGate(state.page)
+
+    let beforeRelease
+    let afterRelease
+    let afterDraftInput
+    try {
+      // When
+      await state.page.locator('#save-document').click()
+      await waitForLibraryWriteBoundary(state.page, 'entered', 1)
+      await state.page.locator('#cancel-document').click()
+      beforeRelease = await savedLifecycleSnapshot(state.page, 2, savedDocument.id)
+      await releaseLibraryWrite(state.page, 1)
+      await waitForLibraryWriteBoundary(state.page, 'completed', 1)
+      afterRelease = await savedLifecycleSnapshot(state.page, 2, savedDocument.id)
+      writeSavedLifecycleTrace('cancel-after-delayed-save.json', {
+        beforeRelease,
+        afterRelease,
+      })
+
+      // Then
+      assert.equal(beforeRelease.actionMode, 'draft')
+      assert.equal(beforeRelease.librarySelected, 'true')
+      assert.equal(afterRelease.actionMode, 'draft')
+      assert.equal(afterRelease.librarySelected, 'true')
+      assert.equal(afterRelease.editorModeHidden, true)
+      assert.notEqual(afterRelease.status, 'Changes saved')
+      assert.equal(afterRelease.library[0].markdown, '# Delayed cancel source saved first\n')
+
+      await state.page.locator('#tab-editor').click()
+      const editor = state.page.locator('.ProseMirror')
+      await editor.press('End')
+      await editor.pressSequentially(' remains draft')
+      await waitForSessionMarkdown(
+        state.page,
+        `${sessionMarkdown} remains draft\n`,
+      )
+      afterDraftInput = await savedLifecycleSnapshot(state.page, 2, savedDocument.id)
+      writeSavedLifecycleTrace('cancel-after-delayed-save.json', {
+        beforeRelease,
+        afterRelease,
+        afterDraftInput,
+      })
+      assert.equal(afterDraftInput.sessionMarkdown, `${sessionMarkdown} remains draft\n`)
+    } finally {
+      await restoreLibraryWriteGate(state.page)
+    }
+  })
+
+  test('keeps Library active when a delayed saved-document update finishes after accepted discard navigation', async () => {
+    // Given
+    const savedDocument = {
+      id: '88888888-8888-4888-8888-888888888888',
+      markdown: '# Delayed navigation source',
+      createdAt: 2,
+      updatedAt: 2,
+    }
+    const sessionMarkdown = '# Navigation draft'
+    await state.page.evaluate(
+      ({ sessionKey, localKey, sessionMarkdown, savedDocument }) => Promise.all([
+        chrome.storage.session.set({ [sessionKey]: sessionMarkdown }),
+        chrome.storage.local.set({ [localKey]: [savedDocument] }),
+      ]),
+      { sessionKey: sessionDraftKey, localKey: libraryKey, sessionMarkdown, savedDocument },
+    )
+    await state.page.reload()
+    await state.page.locator('.ProseMirror').waitFor()
+    await state.page.locator('#tab-library').click()
+    await state.page.locator('.library-card-edit').click()
+    await state.page.locator('.ProseMirror').press('End')
+    await state.page.locator('.ProseMirror').pressSequentially(' stored')
+    await installLibraryWriteGate(state.page)
+
+    let beforeRelease
+    let afterRelease
+    try {
+      // When
+      await state.page.locator('#save-document').click()
+      await waitForLibraryWriteBoundary(state.page, 'entered', 1)
+      const message = await clickAndHandleDialog(
+        state.page,
+        state.page.locator('#tab-library'),
+        'accept',
+      )
+      assert.match(message, /discard/i)
+      beforeRelease = await savedLifecycleSnapshot(state.page, 2, savedDocument.id)
+      await releaseLibraryWrite(state.page, 1)
+      await waitForLibraryWriteBoundary(state.page, 'completed', 1)
+      afterRelease = await savedLifecycleSnapshot(state.page, 2, savedDocument.id)
+      writeSavedLifecycleTrace('library-after-delayed-save.json', {
+        beforeRelease,
+        afterRelease,
+      })
+
+      // Then
+      assert.equal(beforeRelease.actionMode, 'draft')
+      assert.equal(beforeRelease.librarySelected, 'true')
+      assert.equal(afterRelease.actionMode, 'draft')
+      assert.equal(afterRelease.librarySelected, 'true')
+      assert.equal(afterRelease.editorModeHidden, true)
+      assert.notEqual(afterRelease.status, 'Changes saved')
+      assert.equal(afterRelease.sessionMarkdown, sessionMarkdown)
+      assert.equal(afterRelease.library[0].markdown, '# Delayed navigation source stored\n')
+    } finally {
+      await restoreLibraryWriteGate(state.page)
+    }
+  })
+
+  test('does not resurrect a document when Delete commits before a queued Save changes update', async () => {
+    // Given
+    const savedDocument = {
+      id: '99999999-9999-4999-8999-999999999999',
+      markdown: '# Delete wins',
+      createdAt: 3,
+      updatedAt: 3,
+    }
+    const sessionMarkdown = '# Draft after delete'
+    await state.page.evaluate(
+      ({ sessionKey, localKey, sessionMarkdown, savedDocument }) => Promise.all([
+        chrome.storage.session.set({ [sessionKey]: sessionMarkdown }),
+        chrome.storage.local.set({ [localKey]: [savedDocument] }),
+      ]),
+      { sessionKey: sessionDraftKey, localKey: libraryKey, sessionMarkdown, savedDocument },
+    )
+    await state.page.reload()
+    await state.page.locator('.ProseMirror').waitFor()
+    await state.page.locator('#tab-library').click()
+    await state.page.locator('.library-card-edit').click()
+    await state.page.locator('.ProseMirror').press('End')
+    await state.page.locator('.ProseMirror').pressSequentially(' obsolete edit')
+    await installLibraryWriteGate(state.page)
+
+    let afterDeleteWrite
+    let afterQueuedSave
+    try {
+      // When
+      const message = await clickAndHandleDialog(
+        state.page,
+        state.page.locator('#delete-document'),
+        'accept',
+      )
+      assert.match(message, /delete/i)
+      await waitForLibraryWriteBoundary(state.page, 'entered', 1)
+      await state.page.locator('#save-document').click()
+      await releaseLibraryWrite(state.page, 1)
+      await waitForLibraryWriteBoundary(state.page, 'completed', 1)
+      await waitForLibraryWriteBoundary(state.page, 'entered', 2)
+      afterDeleteWrite = await savedLifecycleSnapshot(state.page, 2, savedDocument.id)
+      await releaseLibraryWrite(state.page, 2)
+      await waitForLibraryWriteBoundary(state.page, 'completed', 2)
+      afterQueuedSave = await savedLifecycleSnapshot(state.page, 2, savedDocument.id)
+      writeSavedLifecycleTrace('delete-before-queued-save.json', {
+        afterDeleteWrite,
+        afterQueuedSave,
+      })
+
+      // Then
+      assert.equal(afterQueuedSave.library.length, 0)
+      assert.equal(afterQueuedSave.actionMode, 'draft')
+      assert.equal(afterQueuedSave.librarySelected, 'true')
+      assert.equal(afterQueuedSave.editorModeHidden, true)
+      assert.notEqual(afterQueuedSave.status, 'Changes saved')
+      assert.equal(afterQueuedSave.sessionMarkdown, sessionMarkdown)
+    } finally {
+      await restoreLibraryWriteGate(state.page)
+    }
+  })
+
+  test('lets only the newest saved-document update completion control baseline and status', async () => {
+    // Given
+    const firstDocument = {
+      id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      markdown: '# First document',
+      createdAt: 4,
+      updatedAt: 4,
+    }
+    const secondDocument = {
+      id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+      markdown: '# Second document',
+      createdAt: 5,
+      updatedAt: 5,
+    }
+    await state.page.evaluate(
+      ({ sessionKey, localKey, documents }) => Promise.all([
+        chrome.storage.session.set({ [sessionKey]: '# Rapid update draft' }),
+        chrome.storage.local.set({ [localKey]: documents }),
+      ]),
+      { sessionKey: sessionDraftKey, localKey: libraryKey, documents: [secondDocument, firstDocument] },
+    )
+    await state.page.reload()
+    await state.page.locator('.ProseMirror').waitFor()
+    await state.page.locator('#tab-library').click()
+    await state.page.locator(`[data-document-id="${firstDocument.id}"] .library-card-edit`).click()
+    await state.page.locator('.ProseMirror').press('End')
+    await state.page.locator('.ProseMirror').pressSequentially(' first update')
+    await installLibraryWriteGate(state.page)
+
+    let beforeFirstRelease
+    let afterFirstCompletion
+    let afterSecondCompletion
+    try {
+      // When
+      await state.page.locator('#save-document').click()
+      await waitForLibraryWriteBoundary(state.page, 'entered', 1)
+      await clickAndHandleDialog(
+        state.page,
+        state.page.locator('#tab-library'),
+        'accept',
+      )
+      await state.page.locator(`[data-document-id="${secondDocument.id}"] .library-card-edit`).click()
+      await state.page.locator('.ProseMirror').press('End')
+      await state.page.locator('.ProseMirror').pressSequentially(' second update')
+      await state.page.locator('#save-document').click()
+      beforeFirstRelease = await savedLifecycleSnapshot(state.page, 4, secondDocument.id)
+      await releaseLibraryWrite(state.page, 1)
+      await waitForLibraryWriteBoundary(state.page, 'completed', 1)
+      await waitForLibraryWriteBoundary(state.page, 'entered', 2)
+      afterFirstCompletion = await savedLifecycleSnapshot(state.page, 4, secondDocument.id)
+      await releaseLibraryWrite(state.page, 2)
+      await waitForLibraryWriteBoundary(state.page, 'completed', 2)
+      await state.page.waitForFunction(() =>
+        document.querySelector('#editor-mode')?.textContent === 'Editing saved document — Saved',
+      )
+      afterSecondCompletion = await savedLifecycleSnapshot(state.page, 4, secondDocument.id)
+      writeSavedLifecycleTrace('newest-save-controls-completion.json', {
+        beforeFirstRelease,
+        afterFirstCompletion,
+        afterSecondCompletion,
+      })
+
+      // Then
+      assert.equal(beforeFirstRelease.editorText, 'Second document second update')
+      assert.equal(afterFirstCompletion.editorText, 'Second document second update')
+      assert.equal(afterFirstCompletion.storageWrites[1].completed, false)
+      assert.notEqual(afterFirstCompletion.status, 'Changes saved')
+      assert.equal(afterSecondCompletion.editorModeText, 'Editing saved document — Saved')
+      assert.equal(afterSecondCompletion.status, 'Changes saved')
+      assert.match(
+        afterSecondCompletion.library.find(({ id }) => id === firstDocument.id).markdown,
+        /first update/,
+      )
+      assert.match(
+        afterSecondCompletion.library.find(({ id }) => id === secondDocument.id).markdown,
+        /second update/,
+      )
+    } finally {
+      await restoreLibraryWriteGate(state.page)
+    }
   })
 
   test('formats a late-UTC Library update on its UTC calendar day', async () => {

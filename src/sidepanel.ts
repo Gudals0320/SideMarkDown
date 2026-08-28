@@ -114,6 +114,30 @@ let sessionDraftWriteInFlight = false
 let suppressEditorUpdate = false
 let draftWasEdited = false
 let libraryMutationQueue: Promise<void> = Promise.resolve()
+let savedDocumentLifecycleGeneration = 0
+
+const advanceSavedDocumentLifecycle = (): number => {
+  savedDocumentLifecycleGeneration += 1
+  return savedDocumentLifecycleGeneration
+}
+
+const isCurrentSavedDocumentOperation = (
+  operationGeneration: number,
+  documentId: LibraryDocumentId,
+): boolean => {
+  const activeMode = editorMode
+  switch (activeMode.kind) {
+    case 'draft':
+      return false
+    case 'saved-document':
+      return (
+        operationGeneration === savedDocumentLifecycleGeneration &&
+        activeMode.documentId === documentId
+      )
+    default:
+      return assertNever(activeMode)
+  }
+}
 
 for (const button of [
   copyButton,
@@ -283,6 +307,7 @@ const replaceEditorMarkdown = (markdown: string) => {
 }
 
 const restoreDraftEditor = () => {
+  advanceSavedDocumentLifecycle()
   editorMode = { kind: 'draft' }
   setDocumentActionVisibility(false)
   renderSavedDocumentContext()
@@ -300,6 +325,7 @@ const editLibraryDocument = (documentId: LibraryDocumentId) => {
   )
   if (!selectedDocument) return
 
+  advanceSavedDocumentLifecycle()
   editorMode = {
     kind: 'saved-document',
     documentId,
@@ -662,10 +688,12 @@ saveDocumentButton.addEventListener('click', async () => {
     case 'draft':
       return
     case 'saved-document':
+      const operationGeneration = advanceSavedDocumentLifecycle()
       try {
         const markdown = editor.action(getMarkdown()) ?? currentMarkdown
-        await mutateLibraryDocuments((documents) =>
-          updateLibraryDocument({
+        let documentWasUpdated = false
+        await mutateLibraryDocuments((documents) => {
+          const updatedDocuments = updateLibraryDocument({
             documents,
             id: activeMode.documentId,
             markdown,
@@ -673,8 +701,25 @@ saveDocumentButton.addEventListener('click', async () => {
               Date.now(),
               (documents[0]?.updatedAt ?? -1) + 1,
             ),
-          }),
-        )
+          })
+          documentWasUpdated = updatedDocuments !== documents
+          return updatedDocuments
+        })
+        if (
+          !isCurrentSavedDocumentOperation(
+            operationGeneration,
+            activeMode.documentId,
+          )
+        ) {
+          return
+        }
+        if (!documentWasUpdated) {
+          finishSavedDocumentEditing()
+          setStatus('Save failed', 'error')
+          return
+        }
+        const liveMarkdown = editor.action(getMarkdown()) ?? currentMarkdown
+        if (liveMarkdown !== markdown) return
         editorMode = {
           ...activeMode,
           baselineMarkdown: markdown,
@@ -685,7 +730,14 @@ saveDocumentButton.addEventListener('click', async () => {
       } catch (error) {
         // no-excuse-ok: catch -- click handler reports local storage failure.
         logWarning('Failed to update the Library document.', error)
-        setStatus('Save failed', 'error')
+        if (
+          isCurrentSavedDocumentOperation(
+            operationGeneration,
+            activeMode.documentId,
+          )
+        ) {
+          setStatus('Save failed', 'error')
+        }
       }
       break
     default:
@@ -702,17 +754,33 @@ deleteDocumentButton.addEventListener('click', async () => {
   if (editorMode.kind !== 'saved-document') return
   if (!window.confirm('Delete this saved document permanently?')) return
 
+  const activeMode = editorMode
+  const operationGeneration = advanceSavedDocumentLifecycle()
   try {
-    const documentId = editorMode.documentId
     await mutateLibraryDocuments((documents) =>
-      deleteLibraryDocument(documents, documentId),
+      deleteLibraryDocument(documents, activeMode.documentId),
     )
+    if (
+      !isCurrentSavedDocumentOperation(
+        operationGeneration,
+        activeMode.documentId,
+      )
+    ) {
+      return
+    }
     finishSavedDocumentEditing()
     setStatus('Document deleted')
   } catch (error) {
     // no-excuse-ok: catch -- click handler reports local storage failure.
     logWarning('Failed to delete the Library document.', error)
-    setStatus('Delete failed', 'error')
+    if (
+      isCurrentSavedDocumentOperation(
+        operationGeneration,
+        activeMode.documentId,
+      )
+    ) {
+      setStatus('Delete failed', 'error')
+    }
   }
 })
 
