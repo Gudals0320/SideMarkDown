@@ -142,6 +142,7 @@ test('design contract fixes the Quiet Paper Workbench system before UI changes',
 
 test('README documents the shipped extension actions and local-only quality boundary', () => {
   const readme = readText('README.md')
+  const manifest = readJson('public', 'manifest.json')
   for (const term of ['Copy MD', 'Copy compact', 'Save to Library', 'Save changes', 'absolute Library metadata', 'automatic light/dark']) {
     assert.match(readme, new RegExp(escapeRegex(term)), `README must document ${term}`)
   }
@@ -151,6 +152,23 @@ test('README documents the shipped extension actions and local-only quality boun
   assert.match(readme, /local-only|기기와 Chrome profile 안에서만/s)
   assert.equal(readme.includes('Lighthouse score'), false, 'README must not claim an extension-origin Lighthouse score')
   assert.equal(readme.includes('GFM'), false, 'README must not claim unsupported GFM features')
+
+  const securitySection = readme.slice(readme.indexOf('## 보안 검토'), readme.indexOf('## 저장 정책'))
+  const extensionCsp = manifest.content_security_policy?.extension_pages
+  assert.equal(typeof extensionCsp, 'string', 'the shipped manifest must declare the extension-pages CSP')
+  assert.doesNotMatch(securitySection, /custom `content_security_policy` 없음/)
+  assert.match(securitySection, /custom `content_security_policy` 적용/)
+  for (const directive of extensionCsp.split(';').map((part) => part.trim())) {
+    const [name, ...sources] = directive.split(/\s+/)
+    assert.match(
+      securitySection,
+      new RegExp(`${escapeRegex(name)}\\s+${sources.map(escapeRegex).join('\\s+')}`),
+      `README security guidance must preserve manifest CSP directive: ${directive}`,
+    )
+  }
+  assert.match(securitySection, /connect-src 'none'[^\n]*원격.*(?:이미지|네트워크).*차단/)
+  assert.match(securitySection, /img-src 'self' data: blob:[^\n]*(?:extension-local|extension 내부|data|blob)/)
+  assert.match(securitySection, /원격 서버 전송 기능 없음/)
 })
 
 test('dependency sources and CI actions are immutable and public', () => {

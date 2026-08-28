@@ -94,7 +94,7 @@ editor에서 `Enter`는 새 문단을 만들고 `Shift+Enter`는 문단 안에 h
 - `clipboardRead` 권한 없음
 - `storage.sync`, `unlimitedStorage` 사용 없음
 - 외부 CDN 또는 원격 script 로딩 없음
-- custom `content_security_policy` 없음
+- custom `content_security_policy` 적용 (`script-src 'self'; object-src 'self'; connect-src 'none'; img-src 'self' data: blob:`). `script-src 'self'`와 `object-src 'self'`는 extension 내부 script/object만 허용하고, `connect-src 'none'` 및 `img-src 'self' data: blob:`은 원격 네트워크/이미지를 자동 차단하며 extension 내부·`data:`·`blob:` 이미지 소스만 허용합니다.
 - 원격 서버 전송 기능 없음
 
 SideMarkDown은 사용자가 side panel에 입력하거나 Library에 저장한 Markdown을 extension 내부에서만 다룹니다. `Copy MD`, `Copy compact`, Library 카드의 `Copy`는 사용자가 직접 누른 경우에만 `text/plain` clipboard write 경로로 원문을 복사합니다.
