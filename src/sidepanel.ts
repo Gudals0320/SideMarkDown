@@ -112,6 +112,7 @@ let statusTimer: number | undefined
 let pendingSessionDraft: string | undefined
 let sessionDraftWriteInFlight = false
 let suppressEditorUpdate = false
+let draftWasEdited = false
 let libraryMutationQueue: Promise<void> = Promise.resolve()
 
 for (const button of [
@@ -272,6 +273,7 @@ const replaceEditorMarkdown = (markdown: string) => {
   if (!editor) return
 
   suppressEditorUpdate = true
+  draftWasEdited = false
   currentMarkdown = markdown
   try {
     editor.action(replaceAll(markdown))
@@ -568,6 +570,11 @@ libraryTab.addEventListener('click', () => {
   activateLibraryTab()
 })
 
+editorRoot.addEventListener('input', () => {
+  if (!editor || suppressEditorUpdate || editorMode.kind !== 'draft') return
+  draftWasEdited = true
+})
+
 copyButton.addEventListener('click', async () => {
   if (!editor) return
 
@@ -625,7 +632,9 @@ saveDraftButton.addEventListener('click', async () => {
 
   try {
     const id = libraryDocumentIdSchema.parse(crypto.randomUUID())
-    const markdown = currentMarkdown
+    const markdown = draftWasEdited
+      ? (editor.action(getMarkdown()) ?? currentMarkdown)
+      : currentMarkdown
     await mutateLibraryDocuments((documents) =>
       createLibraryDocument({
         documents,

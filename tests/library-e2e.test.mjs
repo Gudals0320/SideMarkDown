@@ -11,6 +11,7 @@ const evidence = path.join(root, '.omo', 'evidence', 'issue-5')
 const sessionDraftKey = 'miniMdSessionDraft'
 const libraryKey = 'miniMdLibrary'
 const titledMarkdown = '# Saved title\nFirst preview line\nSecond preview line'
+const rapidTypedMarkdown = '빠른 중복 저장 회귀 문서\n'
 const untitledMarkdown = 'Untitled first line\nUntitled second line'
 const longMarkdown = `# Restart proof\n${'가나다라마바사'.repeat(520)}`
 const state = {
@@ -170,6 +171,34 @@ describe('persistent prompt Library', { concurrency: false }, () => {
     await state.page.locator('#tab-editor').click()
     assert.match(await state.page.locator('.ProseMirror').textContent(), /Saved title/)
     assert.equal((await getLibrary(state.page)).length, 0)
+  })
+
+  test('persists live typed Markdown in both rapid duplicate saves', async () => {
+    try {
+      // Given
+      await state.page.locator('#clear').click()
+      const editor = state.page.locator('.ProseMirror')
+      await editor.focus()
+      await state.page.keyboard.insertText(rapidTypedMarkdown.trimEnd())
+
+      // When
+      const documentsReady = waitForLibraryLength(state.page, 2)
+      await state.page.evaluate(() => {
+        const saveButton = document.querySelector('#save-draft')
+        saveButton.click()
+        saveButton.click()
+      })
+      const documents = await documentsReady
+
+      // Then
+      assert.equal(await editor.textContent(), rapidTypedMarkdown.trimEnd())
+      assert.equal(documents[0].markdown, rapidTypedMarkdown)
+      assert.equal(documents[1].markdown, rapidTypedMarkdown)
+      assert.notEqual(documents[0].id, documents[1].id)
+    } finally {
+      await state.page.evaluate((key) => chrome.storage.local.remove(key), libraryKey)
+      await setDraft(state.page, titledMarkdown)
+    }
   })
 
   test('creates duplicate cards without leaving or clearing the draft Editor', async () => {
