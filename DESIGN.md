@@ -60,6 +60,7 @@ The CJK-safe primary stack is `system-ui, -apple-system, BlinkMacSystemFont, "Se
 | Body | 15px / 1.72 | 400 | normal | paragraph and list text |
 | Code | 13px / 1.6 | 400 | normal | fenced code; inline code is `0.9em/1.45` |
 | Metadata | 15px / 1.5 | 400 | normal | muted or faint supporting information |
+| Narrow control | 13px / 1.5 | 400 | normal | complete action labels at 420px and below only; wide controls remain 14px |
 
 ### H1-H6 and CommonMark rules
 
@@ -82,7 +83,7 @@ All spacing derives from a base of **4px**: `--space-1` 4px, `--space-2` 8px, `-
 - Use responsive inline padding to hold prose near a **72ch** measure on wide panels while keeping a **full-width** contenteditable surface. Never cap the editable element itself to a narrow fixed box.
 - Normal paper padding is 24px top, responsive full-width measure padding inline, and 48px bottom. At 420px and below it is 20px top, 16px inline, and 40px bottom.
 - The stable scroll owner is the internal Editor or Library view, not an overflowing page. At 375px the Library is one column; wider widths use an intrinsic responsive grid.
-- Above 420px, copy and document action groups share one row. At 420px and below, a session draft remains one row when bounding boxes fit; a saved document uses two intentional rows: `Copy MD` plus `Copy compact`, then `Save changes`, `Cancel`, and `Delete`. Labels never abbreviate or become icon-only.
+- Above 420px, copy and document action groups share one row at the normal 14px control size. At 420px and below, controls use the 13px narrow-control token and the toolbar relinquishes inline padding so platform system-font metrics cannot force a session draft onto a second row. A session draft remains one row when bounding boxes fit; a saved document uses two intentional rows: `Copy MD` plus `Copy compact`, then `Save changes`, `Cancel`, and `Delete`. Labels never abbreviate or become icon-only, group gaps remain 4px, and controls remain at least 36px tall.
 
 ## 5. Components
 

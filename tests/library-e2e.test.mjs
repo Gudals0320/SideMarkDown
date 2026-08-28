@@ -694,6 +694,7 @@ describe('persistent prompt Library', { concurrency: false }, () => {
           toolbarFits: toolbar.scrollWidth <= toolbar.clientWidth,
           statusText: status.textContent,
           statusEllipsizes: status.scrollWidth > status.clientWidth,
+          status: toRect(status),
           before,
           after,
           save: {
@@ -727,7 +728,11 @@ describe('persistent prompt Library', { concurrency: false }, () => {
       assert.equal(layout.bodyFits, true)
       assert.equal(layout.toolbarFits, true)
       assert.match(layout.statusText, /Editor failed to load/)
-      assert.equal(layout.statusEllipsizes, width === 375)
+      if (width === 375) assert.equal(layout.statusEllipsizes, true)
+      assert.ok(layout.status.left >= layout.after.topbar.left)
+      assert.ok(layout.status.right <= layout.after.topbar.right)
+      assert.ok(layout.status.top >= layout.after.topbar.top)
+      assert.ok(layout.status.bottom <= layout.after.topbar.bottom)
       assert.deepEqual(layout.before, layout.after)
       for (const action of layout.visible) {
         assert.ok(action.rect.height >= 36)

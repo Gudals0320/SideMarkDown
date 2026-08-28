@@ -568,6 +568,7 @@ test('semantic type and component geometry tokens drive the narrow shell', () =>
     '--font-mono': '"Cascadia Mono", Consolas, "Liberation Mono", monospace',
     '--type-brand-size': '16px',
     '--type-control-size': '14px',
+    '--type-control-size-narrow': '13px',
     '--type-body-size': '15px',
     '--type-metadata-size': '15px',
     '--type-body-line': '1.72',
@@ -605,6 +606,10 @@ test('semantic type and component geometry tokens drive the narrow shell', () =>
   assert.match(css, /\.library-card-metadata[\s\S]*font-size: var\(--type-metadata-size\);/)
   assert.match(css, /\.library-card-preview[\s\S]*font-size: var\(--type-body-size\);/)
   assert.match(css, /\.ProseMirror\s*\{[\s\S]*font-family: var\(--font-sans\);[\s\S]*font-size: var\(--type-body-size\);[\s\S]*line-height: var\(--type-body-line\);/)
+  assert.match(
+    css,
+    /@media \(max-width: 420px\)[\s\S]*\.toolbar-actions\s*\{[\s\S]*padding-inline: 0;[\s\S]*\.toolbar-actions button\s*\{[\s\S]*font-size: var\(--type-control-size-narrow\);/,
+  )
 })
 
 test('component geometry tokens cover declared list, inline-code, library, and action values', () => {

@@ -459,6 +459,23 @@ describe('unpacked SideMarkDown extension', { concurrency: false }, () => {
           const paper = editor.getBoundingClientRect()
           const surface = scrollSurface.getBoundingClientRect()
           const zoom = Number.parseFloat(getComputedStyle(document.documentElement).zoom) || 1
+          const probe = document.createElement('span')
+          probe.setAttribute('aria-hidden', 'true')
+          probe.style.cssText = [
+            'position: fixed',
+            'visibility: hidden',
+            'pointer-events: none',
+            'display: block',
+            'width: 72ch',
+            `font-family: ${style.fontFamily}`,
+            `font-size: ${style.fontSize}`,
+            `font-style: ${style.fontStyle}`,
+            `font-weight: ${style.fontWeight}`,
+            `letter-spacing: ${style.letterSpacing}`,
+          ].join(';')
+          document.body.append(probe)
+          const expectedProseMeasure = probe.getBoundingClientRect().width
+          probe.remove()
           return {
             active: document.activeElement === editor,
             bodyFits: document.body.scrollWidth <= document.body.clientWidth,
@@ -471,6 +488,7 @@ describe('unpacked SideMarkDown extension', { concurrency: false }, () => {
             paddingBottom: style.paddingBottom,
             paddingLeft: style.paddingLeft,
             proseMeasure: paper.width - Number.parseFloat(style.paddingLeft) - Number.parseFloat(style.paddingRight),
+            expectedProseMeasure,
           }
         })
         assert.ok(Math.abs(geometry.paper.width - geometry.surface.width) <= 1, `paper must fill the editor scroll surface at ${width}px`)
@@ -483,7 +501,12 @@ describe('unpacked SideMarkDown extension', { concurrency: false }, () => {
           assert.equal(geometry.paddingRight, expectedPadding.inline)
         }
         assert.equal(geometry.bodyFits, true)
-        if (width > 420 && geometry.zoom === 1) assert.ok(geometry.proseMeasure <= 577 && geometry.proseMeasure >= 575, `wide prose measure must remain near 72ch at ${width}px`)
+        if (width > 420 && geometry.zoom === 1) {
+          assert.ok(
+            Math.abs(geometry.proseMeasure - geometry.expectedProseMeasure) <= 1,
+            `wide prose measure must remain at the computed 72ch at ${width}px: ${JSON.stringify(geometry)}`,
+          )
+        }
         if (geometry.zoom === 1) {
           await page.locator('.ProseMirror').click({
             position: { x: geometry.paper.width - Number.parseFloat(geometry.paddingRight) / 2, y: 10 },
@@ -956,6 +979,32 @@ describe('unpacked SideMarkDown extension', { concurrency: false }, () => {
         assert.ok(control.rect.top >= geometry.toolbar.top && control.rect.bottom <= geometry.toolbar.bottom, `${control.selector} escapes the toolbar vertically`)
       }
     }
+
+    const forcedWideMetrics = await page.addStyleTag({
+      content: '@media (max-width: 420px) { #editor-actions button { letter-spacing: 0.5px; } }',
+    })
+    await page.setViewportSize({ width: 375, height: 900 })
+    const forcedGeometry = await measureToolbar(expectedDraft)
+    observations.draft.push({ width: 375, metricMode: 'forced-wide', geometry: forcedGeometry })
+    assert.equal(
+      forcedGeometry.rows.length,
+      1,
+      `draft toolbar must tolerate wider system-font metrics at 375px: ${JSON.stringify(forcedGeometry.controls)}`,
+    )
+    assert.equal(forcedGeometry.bodyFits, true, 'wide-metric draft toolbar widens the body')
+    assert.equal(forcedGeometry.toolbarFits, true, 'wide-metric draft toolbar scrolls')
+    assert.deepEqual(forcedGeometry.overlaps, [], 'wide-metric draft toolbar controls overlap')
+    for (const control of forcedGeometry.controls) {
+      assert.equal(control.text, control.label, `${control.selector} forced-metric visible label is incomplete`)
+      assert.equal(control.accessibleName, control.label, `${control.selector} forced-metric accessible name changed`)
+      assert.equal(control.clipped, false, `${control.selector} forced-metric label or icon is clipped`)
+      assert.ok(control.rect.height >= 36, `${control.selector} forced-metric control is shorter than 36px`)
+      assert.ok(
+        control.rect.left >= forcedGeometry.toolbar.left && control.rect.right <= forcedGeometry.toolbar.right,
+        `${control.selector} forced-metric control escapes the toolbar`,
+      )
+    }
+    await forcedWideMetrics.evaluate((node) => node.remove())
 
     await page.evaluate(
       ({ sessionKey, localKey, document }) => Promise.all([

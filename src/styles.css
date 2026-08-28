@@ -14,6 +14,7 @@
   --font-mono: "Cascadia Mono", Consolas, "Liberation Mono", monospace;
   --type-brand-size: 16px;
   --type-control-size: 14px;
+  --type-control-size-narrow: 13px;
   --type-body-size: 15px;
   --type-metadata-size: 15px;
   --type-code-size: 13px;
@@ -507,7 +508,11 @@ a {
 
   .toolbar-actions {
     gap: var(--space-1);
-    padding-inline: var(--space-2);
+    padding-inline: 0;
+  }
+
+  .toolbar-actions button {
+    font-size: var(--type-control-size-narrow);
   }
 
   .copy-actions,
