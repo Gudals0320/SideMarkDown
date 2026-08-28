@@ -311,6 +311,48 @@ describe('persistent prompt Library', { concurrency: false }, () => {
     assert.equal((await getLibrary(state.page)).length, 0)
   })
 
+  test('rejects a persisted timestamp outside the JS Date range before Library render', async () => {
+    // Given: local storage contains a structurally valid document whose timestamp
+    // cannot be rendered by Date or time.dateTime.
+    const errorsBefore = state.errors.length
+    await state.page.evaluate(
+      ({ key, timestamp }) => chrome.storage.local.set({
+        [key]: [{
+          id: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+          markdown: '# Invalid persisted date',
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        }],
+      }),
+      { key: libraryKey, timestamp: 8_640_000_000_000_001 },
+    )
+    await state.page.reload()
+    await state.page.locator('.ProseMirror').waitFor()
+
+    try {
+      // When: the user navigates through the real unpacked extension to Library.
+      await state.page.locator('#tab-library').click()
+
+      // Then: invalid persisted data is rejected at the schema boundary and the
+      // existing safe empty/recovery state renders without a page exception.
+      assert.equal(await state.page.locator('#library-empty').isVisible(), true)
+      assert.equal(await state.page.locator('.library-card').count(), 0)
+      assert.equal(
+        await state.page.locator('#library-empty > p').textContent(),
+        'Save a draft to build your local Library.',
+      )
+      assert.equal(
+        await state.page.getByRole('button', { name: 'Go to Editor' }).isVisible(),
+        true,
+      )
+      assert.deepEqual(state.errors.slice(errorsBefore), [])
+    } finally {
+      await state.page.evaluate((key) => chrome.storage.local.remove(key), libraryKey)
+      await state.page.reload()
+      await state.page.locator('.ProseMirror').waitFor()
+    }
+  })
+
   test('persists live typed Markdown in both rapid duplicate saves', async () => {
     try {
       // Given

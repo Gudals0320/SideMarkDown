@@ -56,6 +56,29 @@ test('parses only valid persisted library documents', async () => {
   assert.deepEqual(parseLibraryDocuments([{ ...documents[0], id: 'not-a-uuid' }]), [])
 })
 
+test('accepts the maximum JS Date timestamp and rejects the next millisecond', async () => {
+  // Given
+  const { parseLibraryDocuments } = await importLibraryModule()
+  const maximumDateTimestamp = 8_640_000_000_000_000
+  const document = {
+    id: '9bf6130b-065d-41fe-b4ee-c00a2d435620',
+    markdown: '# Date boundary',
+    createdAt: maximumDateTimestamp,
+    updatedAt: maximumDateTimestamp,
+  }
+
+  // When / Then
+  assert.deepEqual(parseLibraryDocuments([document]), [document])
+  assert.deepEqual(
+    parseLibraryDocuments([{ ...document, createdAt: maximumDateTimestamp + 1 }]),
+    [],
+  )
+  assert.deepEqual(
+    parseLibraryDocuments([{ ...document, updatedAt: maximumDateTimestamp + 1 }]),
+    [],
+  )
+})
+
 test('derives card title and preview from the first Markdown line', async () => {
   // Given
   const { getLibraryCardContent } = await importLibraryModule()

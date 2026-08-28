@@ -6,8 +6,8 @@ export const libraryDocumentSchema = z
   .object({
     id: libraryDocumentIdSchema,
     markdown: z.string(),
-    createdAt: z.number().int().nonnegative(),
-    updatedAt: z.number().int().nonnegative(),
+    createdAt: z.number().int().nonnegative().max(8_640_000_000_000_000),
+    updatedAt: z.number().int().nonnegative().max(8_640_000_000_000_000),
   })
   .strict()
 

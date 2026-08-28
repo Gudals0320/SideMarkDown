@@ -526,6 +526,10 @@ test('Library cards expose stable absolute metadata and a durable empty-state re
   assert.match(html, /id="library-empty"[\s\S]*Save a draft to build your local Library\.[\s\S]*id="library-empty-go-to-editor"[\s\S]*Go to Editor/s)
   assert.match(library, /const libraryUpdatedDateFormatter = new Intl\.DateTimeFormat\('en-US', \{[\s\S]*year: 'numeric',[\s\S]*month: 'short',[\s\S]*day: 'numeric',/)
   assert.match(library, /formatLibraryUpdatedAt[\s\S]*libraryUpdatedDateFormatter\.format\(new Date\(updatedAt\)\)/)
+  assert.match(
+    library,
+    /createdAt: z\.number\(\)\.int\(\)\.nonnegative\(\)\.max\(8_640_000_000_000_000\),[\s\S]*updatedAt: z\.number\(\)\.int\(\)\.nonnegative\(\)\.max\(8_640_000_000_000_000\),/,
+  )
   assert.doesNotMatch(sidepanel, /setInterval\(/)
   assert.match(sidepanel, /metadata\.dateTime = new Date\(libraryDocument\.updatedAt\)\.toISOString\(\)/)
   assert.match(sidepanel, /metadata\.setAttribute\('aria-label', `Updated \$\{formattedUpdatedAt\}`\)/)
